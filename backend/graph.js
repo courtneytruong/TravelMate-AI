@@ -8,5 +8,5 @@ export function buildGraph() {
 // Placeholder graph invocation used by server/chat endpoint
 export async function invokeGraph(sessionID, message) {
   // TODO: replace with real graph/agent invocation logic
-  return `Echo (${sessionID ?? 'no-session'}): ${message}`;
+  return `Echo (${sessionID ?? "no-session"}): ${message}`;
 }
