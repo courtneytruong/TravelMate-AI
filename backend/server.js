@@ -1,8 +1,8 @@
 // backend/server.js
-const express = require("express");
-const { buildGraph } = require("./graph");
-const { systemPrompt } = require("./prompts");
-const memory = require("./memory");
+import express from "express";
+import { buildGraph } from "./graph.js";
+import { systemPrompt } from "./prompts.js";
+import * as memory from "./memory.js";
 
 const app = express();
 app.use(express.json());

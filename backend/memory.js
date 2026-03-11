@@ -3,12 +3,10 @@
 
 const memoryStore = [];
 
-function addMemory(item) {
+export function addMemory(item) {
   memoryStore.push({ item, ts: Date.now() });
 }
 
-function getAllMemory() {
+export function getAllMemory() {
   return memoryStore.slice();
 }
-
-module.exports = { addMemory, getAllMemory };

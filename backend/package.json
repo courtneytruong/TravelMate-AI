@@ -1,0 +1,25 @@
+{
+  "name": "travelmate-ai-backend",
+  "version": "0.1.0",
+  "description": "Express backend for TravelMate AI",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "*",
+    "cors": "*",
+    "dotenv": "*",
+    "axios": "*",
+    "@langchain/core": "*",
+    "@langchain/openai": "*",
+    "@langchain/langgraph": "*",
+    "langchain": "*"
+  },
+  "devDependencies": {
+    "nodemon": "*"
+  },
+  "license": "MIT"
+}
