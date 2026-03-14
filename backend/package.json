@@ -9,14 +9,15 @@
     "dev": "nodemon server.js"
   },
   "dependencies": {
-    "express": "*",
+    "@langchain/core": "*",
+    "@langchain/langgraph": "^1.2.2",
+    "@langchain/openai": "*",
+    "axios": "*",
     "cors": "*",
     "dotenv": "*",
-    "axios": "*",
-    "@langchain/core": "*",
-    "@langchain/openai": "*",
-    "@langchain/langgraph": "*",
-    "langchain": "*"
+    "express": "*",
+    "langchain": "*",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "nodemon": "*"
