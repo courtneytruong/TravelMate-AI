@@ -20,6 +20,8 @@ const attractionsTool = new DynamicStructuredTool({
   zodSchema: zSchema,
   func: async ({ city, category } = {}) => {
     try {
+      if (!city)
+        return 'Please provide a destination city (e.g., "Tokyo") so I can search for attractions.';
       const catKey = (category || "").toLowerCase().trim();
       const categoryId =
         categoryMap[catKey] ?? (category ? category : "10000,16000");

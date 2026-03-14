@@ -3,8 +3,8 @@ import restaurantTool from "./restaurantTool.js";
 async function main() {
   try {
     const result = await restaurantTool.func({
-      city: "Paris",
-      cuisine: "Italian",
+      city: "Lexington, KY",
+      cuisine: "Chinese",
       limit: 3,
     });
     console.log(result);
