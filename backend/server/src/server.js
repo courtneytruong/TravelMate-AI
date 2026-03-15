@@ -25,7 +25,13 @@ app.post("/api/chat", async (req, res, next) => {
         .json({ error: true, message: "message is required" });
 
     const result = await invokeGraph(sessionID, message);
-    return res.json({ reply: result });
+    // `invokeGraph` may return either a string reply or an object
+    // with `{ reply, tripContext }`. Normalize the response so the
+    // client can always read `data.reply` and `data.tripContext`.
+    if (result && typeof result === "object") {
+      return res.json(result);
+    }
+    return res.json({ reply: String(result), tripContext: {} });
   } catch (err) {
     next(err);
   }

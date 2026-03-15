@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import ChatWindow from "./components/ChatWindow";
 import TripSidebar from "./components/TripSidebar";
 import "./App.css";
@@ -11,27 +12,48 @@ function App() {
     },
   ];
 
-  const tripContext = {
-    destination: "Tokyo, JP",
-    departDate: "2026-05-10",
+  const [tripContext, setTripContext] = useState({
+    destination: null,
+    departDate: null,
     returnDate: null,
     flightNumber: "",
-    preferences: ["sightseeing", "vegetarian"],
-  };
-
-  async function handleSend(text) {
-    await new Promise((r) => setTimeout(r, 1200));
-    return `Assistant reply to: ${text}`;
-  }
+  });
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        <div className="lg:col-span-2">
-          <ChatWindow initialMessages={demoMessages} onSend={handleSend} />
+    <div className="min-h-screen bg-gradient-to-br from-[#0f1119] via-[#16171d] to-[#0a0d14] p-6">
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 20% 50%, rgba(192, 132, 252, 0.1) 0%, transparent 50%)",
+          animation: "gradientShift 15s ease infinite",
+        }}
+      />
+      <div className="relative z-10 max-w-6xl mx-auto">
+        {/* Header */}
+        <div className="mb-8 text-center">
+          <h1
+            style={{ color: "var(--text-h)" }}
+            className="text-2xl font-bold tracking-tight mb-2"
+          >
+            TravelMate AI
+          </h1>
+          <p className="text-sm" style={{ color: "var(--text)", opacity: 0.7 }}>
+            Your intelligent travel companion powered by multi-agent AI
+          </p>
         </div>
-        <div>
-          <TripSidebar tripContext={tripContext} />
+        {/* Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+          <div className="lg:col-span-2">
+            <ChatWindow
+              initialMessages={demoMessages}
+              tripContext={tripContext}
+              setTripContext={setTripContext}
+            />
+          </div>
+          <div>
+            <TripSidebar tripContext={tripContext} />
+          </div>
         </div>
       </div>
     </div>
