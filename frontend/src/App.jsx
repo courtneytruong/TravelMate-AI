@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import ChatWindow from "./components/ChatWindow";
 import TripSidebar from "./components/TripSidebar";
 import "./App.css";
@@ -11,18 +12,12 @@ function App() {
     },
   ];
 
-  const tripContext = {
-    destination: "Tokyo, JP",
-    departDate: "2026-05-10",
+  const [tripContext, setTripContext] = useState({
+    destination: null,
+    departDate: null,
     returnDate: null,
     flightNumber: "",
-    preferences: ["sightseeing", "vegetarian"],
-  };
-
-  async function handleSend(text) {
-    await new Promise((r) => setTimeout(r, 1200));
-    return `Assistant reply to: ${text}`;
-  }
+  });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f1119] via-[#16171d] to-[#0a0d14] p-6">
@@ -50,7 +45,11 @@ function App() {
         {/* Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           <div className="lg:col-span-2">
-            <ChatWindow initialMessages={demoMessages} onSend={handleSend} />
+            <ChatWindow
+              initialMessages={demoMessages}
+              tripContext={tripContext}
+              setTripContext={setTripContext}
+            />
           </div>
           <div>
             <TripSidebar tripContext={tripContext} />

@@ -3,10 +3,16 @@ import TypingIndicator from "./TypingIndicator";
 import WelcomeScreen from "./WelcomeScreen";
 import useChat from "../hooks/useChat";
 
-export default function ChatWindow({ initialMessages = [], onSend }) {
+export default function ChatWindow({
+  initialMessages = [],
+  tripContext = {},
+  setTripContext = () => {},
+}) {
   const [input, setInput] = useState("");
-  const { messages, isLoading, tripContext, sendMessage } =
-    useChat(initialMessages);
+  const { messages, isLoading, sendMessage } = useChat(
+    initialMessages,
+    setTripContext,
+  );
   const endRef = useRef(null);
 
   useEffect(() => {
@@ -37,7 +43,7 @@ export default function ChatWindow({ initialMessages = [], onSend }) {
               className="bg-[var(--accent-bg)] px-3 py-1 rounded-full inline-block"
               style={{ color: "var(--accent)" }}
             >
-              📍 {tripContext.destination}
+              {tripContext.destination}
             </span>
           )}
         </div>

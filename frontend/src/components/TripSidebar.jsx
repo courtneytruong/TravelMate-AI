@@ -1,8 +1,7 @@
 import React from "react";
 
 export default function TripSidebar({ tripContext = {} }) {
-  const { destination, departDate, returnDate, flightNumber, preferences } =
-    tripContext;
+  const { destination, departDate, returnDate, flightNumber } = tripContext;
 
   const renderVal = (val) => {
     const emptyArray = Array.isArray(val) && val.length === 0;
