@@ -14,50 +14,33 @@ export default function TripSidebar({ tripContext = {} }) {
   };
 
   return (
-    <aside className="w-full max-w-sm sticky top-6">
-      <div className="border rounded-lg shadow-sm bg-white overflow-hidden">
-        <div className="bg-teal-500 text-white px-4 py-3 font-medium">
-          Your Trip
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span>📍</span>
-              <span className="text-sm text-gray-700">Destination</span>
-            </div>
-            <div className="text-sm">{renderVal(destination)}</div>
+    <aside className="w-full max-w-sm sticky top-8">
+      <div className="trip-card">
+        <div className="trip-header">✈️ Trip Details</div>
+        <div className="p-6 space-y-0">
+          <div className="trip-item">
+            <div className="trip-label mb-2">📍 Destination</div>
+            <div className="trip-value">{renderVal(destination)}</div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span>🛫</span>
-              <span className="text-sm text-gray-700">Depart</span>
-            </div>
-            <div className="text-sm">{renderVal(departDate)}</div>
+          <div className="trip-item">
+            <div className="trip-label mb-2">🛫 Departure</div>
+            <div className="trip-value">{renderVal(departDate)}</div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span>🛬</span>
-              <span className="text-sm text-gray-700">Return</span>
-            </div>
-            <div className="text-sm">{renderVal(returnDate)}</div>
+          <div className="trip-item">
+            <div className="trip-label mb-2">🛬 Return</div>
+            <div className="trip-value">{renderVal(returnDate)}</div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span>✈️</span>
-              <span className="text-sm text-gray-700">Flight</span>
-            </div>
-            <div className="text-sm">{renderVal(flightNumber)}</div>
+          <div className="trip-item">
+            <div className="trip-label mb-2">✈️ Flight</div>
+            <div className="trip-value">{renderVal(flightNumber)}</div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span>❤️</span>
-              <span className="text-sm text-gray-700">Preferences</span>
-            </div>
-            <div className="text-sm">{renderVal(preferences)}</div>
+          <div className="trip-item">
+            <div className="trip-label mb-2">❤️ Preferences</div>
+            <div className="trip-value">{renderVal(preferences)}</div>
           </div>
         </div>
       </div>
