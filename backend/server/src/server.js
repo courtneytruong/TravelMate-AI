@@ -16,7 +16,9 @@ app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 app.post("/api/chat", async (req, res, next) => {
   try {
-    const { sessionID, message } = req.body;
+    // Accept either `sessionID` (older) or `sessionId` (client)
+    const { message } = req.body;
+    const sessionID = req.body.sessionID || req.body.sessionId;
     if (!message)
       return res
         .status(400)
