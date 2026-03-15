@@ -37,11 +37,6 @@ export default function TripSidebar({ tripContext = {} }) {
             <div className="trip-label mb-2">Flight</div>
             <div className="trip-value">{renderVal(flightNumber)}</div>
           </div>
-
-          <div className="trip-item">
-            <div className="trip-label mb-2">Preferences</div>
-            <div className="trip-value">{renderVal(preferences)}</div>
-          </div>
         </div>
       </div>
     </aside>
