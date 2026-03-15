@@ -41,7 +41,7 @@ function App() {
             style={{ color: "var(--text-h)" }}
             className="text-2xl font-bold tracking-tight mb-2"
           >
-            ✈️ TravelMate AI
+            TravelMate AI
           </h1>
           <p className="text-sm" style={{ color: "var(--text)", opacity: 0.7 }}>
             Your intelligent travel companion powered by multi-agent AI

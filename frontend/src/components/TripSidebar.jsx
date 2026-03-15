@@ -16,30 +16,30 @@ export default function TripSidebar({ tripContext = {} }) {
   return (
     <aside className="w-full max-w-sm sticky top-8">
       <div className="trip-card">
-        <div className="trip-header">✈️ Trip Details</div>
+        <div className="trip-header">Trip Details</div>
         <div className="p-6 space-y-0">
           <div className="trip-item">
-            <div className="trip-label mb-2">📍 Destination</div>
+            <div className="trip-label mb-2">Destination</div>
             <div className="trip-value">{renderVal(destination)}</div>
           </div>
 
           <div className="trip-item">
-            <div className="trip-label mb-2">🛫 Departure</div>
+            <div className="trip-label mb-2">Departure</div>
             <div className="trip-value">{renderVal(departDate)}</div>
           </div>
 
           <div className="trip-item">
-            <div className="trip-label mb-2">🛬 Return</div>
+            <div className="trip-label mb-2">Return</div>
             <div className="trip-value">{renderVal(returnDate)}</div>
           </div>
 
           <div className="trip-item">
-            <div className="trip-label mb-2">✈️ Flight</div>
+            <div className="trip-label mb-2">Flight</div>
             <div className="trip-value">{renderVal(flightNumber)}</div>
           </div>
 
           <div className="trip-item">
-            <div className="trip-label mb-2">❤️ Preferences</div>
+            <div className="trip-label mb-2">Preferences</div>
             <div className="trip-value">{renderVal(preferences)}</div>
           </div>
         </div>
