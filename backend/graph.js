@@ -15,6 +15,7 @@ import {
   HumanMessage,
   SystemMessage,
 } from "@langchain/core/messages";
+import * as chrono from "chrono-node";
 import createWeatherAgent from "./agents/weatherAgent.js";
 import createFlightAgent from "./agents/flightAgent.js";
 import createAttractionsAgent from "./agents/attractionsAgent.js";
@@ -244,8 +245,75 @@ export async function extractTripContext(latestMessage, existing = {}, llm) {
     preferences: z.array(z.string()).nullable(),
   });
 
+  // Helper: parse natural-language date strings into ISO YYYY-MM-DD
+  function parseToISO(str) {
+    if (!str) return null;
+    const s = String(str).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    try {
+      const d = chrono.parseDate(s);
+      if (!d) return null;
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    } catch (e) {
+      return null;
+    }
+  }
+
   if (!llm || typeof llm.withStructuredOutput !== "function") {
-    return existing;
+    // Fallback: attempt to call the LLM directly and parse JSON from its reply
+    try {
+      const prompt = `Extract travel details from the following message. For each field, return the exact value if explicitly mentioned, or null if it is not explicitly mentioned. Respond only with the structured JSON matching the schema. Message:\n\n${text}`;
+
+      const raw = llm.call ? await llm.call(prompt) : await llm.invoke(prompt);
+      const content =
+        raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw));
+
+      let parsed = null;
+      try {
+        parsed = JSON.parse(
+          typeof content === "string" ? content.trim() : content,
+        );
+      } catch (err) {
+        // Try to extract JSON-like substring
+        const m = String(content).match(/\{[\s\S]*\}/);
+        if (m) {
+          try {
+            parsed = JSON.parse(m[0]);
+          } catch (err2) {
+            parsed = null;
+          }
+        }
+      }
+
+      if (!parsed) return existing;
+
+      const updated = { ...existing };
+      if (parsed?.destination != null) updated.destination = parsed.destination;
+      if (parsed?.departDate != null) {
+        const pd = parseToISO(parsed.departDate) || parsed.departDate || null;
+        if (pd) updated.departDate = pd;
+      }
+      if (parsed?.returnDate != null) {
+        const rd = parseToISO(parsed.returnDate) || parsed.returnDate || null;
+        if (rd) updated.returnDate = rd;
+      }
+      if (parsed?.flightNumber != null)
+        updated.flightNumber = parsed.flightNumber;
+      if (parsed?.preferences != null) updated.preferences = parsed.preferences;
+
+      // If departDate still wasn't extracted, try parsing the free text message
+      if (!updated.departDate) {
+        const pd = parseToISO(text);
+        if (pd) updated.departDate = pd;
+      }
+
+      return updated;
+    } catch (err) {
+      return existing;
+    }
   }
 
   const extractor = llm.withStructuredOutput(TripSchema);
@@ -258,15 +326,51 @@ export async function extractTripContext(latestMessage, existing = {}, llm) {
     parsed =
       out?.outputParsed ?? (typeof out === "string" ? JSON.parse(out) : out);
   } catch (err) {
-    return existing;
+    // Structured extractor failed — fallback to a raw LLM call with JSON parsing
+    try {
+      const raw = llm.call ? await llm.call(prompt) : await llm.invoke(prompt);
+      const content =
+        raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw));
+
+      try {
+        parsed = JSON.parse(
+          typeof content === "string" ? content.trim() : content,
+        );
+      } catch (err2) {
+        const m = String(content).match(/\{[\s\S]*\}/);
+        if (m) {
+          try {
+            parsed = JSON.parse(m[0]);
+          } catch (err3) {
+            return existing;
+          }
+        } else {
+          return existing;
+        }
+      }
+    } catch (err4) {
+      return existing;
+    }
   }
 
   const updated = { ...existing };
   if (parsed?.destination != null) updated.destination = parsed.destination;
-  if (parsed?.departDate != null) updated.departDate = parsed.departDate;
-  if (parsed?.returnDate != null) updated.returnDate = parsed.returnDate;
+  if (parsed?.departDate != null) {
+    const pd = parseToISO(parsed.departDate) || parsed.departDate || null;
+    if (pd) updated.departDate = pd;
+  }
+  if (parsed?.returnDate != null) {
+    const rd = parseToISO(parsed.returnDate) || parsed.returnDate || null;
+    if (rd) updated.returnDate = rd;
+  }
   if (parsed?.flightNumber != null) updated.flightNumber = parsed.flightNumber;
   if (parsed?.preferences != null) updated.preferences = parsed.preferences;
+
+  // If departDate wasn't extracted, attempt natural-language parsing on the message
+  if (!updated.departDate) {
+    const pd = parseToISO(text);
+    if (pd) updated.departDate = pd;
+  }
 
   return updated;
 }
@@ -368,6 +472,7 @@ export async function weatherAgentNode(state) {
     const out = await agent.run({
       input: latest,
       chat_history: state.messages,
+      tripContext: state.tripContext,
     });
     const text = out?.output ?? out;
     return { agentResults: { ...(state.agentResults || {}), weather: text } };
@@ -392,6 +497,7 @@ export async function flightAgentNode(state) {
     const out = await agent.run({
       input: latest,
       chat_history: state.messages,
+      tripContext: state.tripContext,
     });
     const text = out?.output ?? out;
     return { agentResults: { ...(state.agentResults || {}), flight: text } };
@@ -416,6 +522,7 @@ export async function attractionsAgentNode(state) {
     const out = await agent.run({
       input: latest,
       chat_history: state.messages,
+      tripContext: state.tripContext,
     });
     const text = out?.output ?? out;
     return {
@@ -442,6 +549,7 @@ export async function restaurantAgentNode(state) {
     const out = await agent.run({
       input: latest,
       chat_history: state.messages,
+      tripContext: state.tripContext,
     });
     const text = out?.output ?? out;
     return {
@@ -474,6 +582,12 @@ export async function synthesisNode(state) {
     }
 
     const systemPrompt = `You are a friendly travel assistant. Merge the provided agent results naturally into one concise helpful reply. Do not repeat section headers verbatim; instead weave the information together. Lead with the most time-sensitive information: flights first, then weather, then activities and restaurants. Format any lists cleanly with short bullet points when appropriate. Keep tone friendly and actionable.`;
+    // Instruct the synthesizer to proceed with available info and avoid asking
+    // clarifying questions; note assumptions when needed. Include tripContext
+    // so the assistant can reference extracted details in the final reply.
+    const tripCtx = state.tripContext || {};
+
+    const synthInstructions = `If any minor details (e.g., temperature units) are missing, proceed using sensible defaults and include a short note about assumptions. Do not ask clarifying questions; instead, acknowledge missing info and continue.`;
 
     let humanContent;
     if (entries.length === 0) {
@@ -484,6 +598,22 @@ export async function synthesisNode(state) {
       );
       humanContent = `Agent outputs:\n\n${parts.join("\n\n")}`;
     }
+
+    // Append tripContext and synthesis instructions so the LLM composes a final
+    // answer that uses the extracted context instead of asking for it again.
+    const tripParts = [];
+    if (tripCtx.destination)
+      tripParts.push(`Destination: ${tripCtx.destination}`);
+    if (tripCtx.departDate) tripParts.push(`DepartDate: ${tripCtx.departDate}`);
+    if (tripCtx.returnDate) tripParts.push(`ReturnDate: ${tripCtx.returnDate}`);
+    if (tripCtx.flightNumber)
+      tripParts.push(`FlightNumber: ${tripCtx.flightNumber}`);
+    if (Array.isArray(tripCtx.preferences) && tripCtx.preferences.length)
+      tripParts.push(`Preferences: ${tripCtx.preferences.join(", ")}`);
+
+    if (tripParts.length)
+      humanContent += "\n\nTripContext:\n" + tripParts.join("\n");
+    humanContent += "\n\n" + synthInstructions;
 
     const apiKey = process.env.GITHUB_TOKEN || process.env.OPENAI_API_KEY;
     const baseURL =

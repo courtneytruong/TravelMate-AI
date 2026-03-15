@@ -4,7 +4,7 @@ async function run() {
   try {
     const res = await invokeGraph(
       "test-session",
-      "My flight to Paris is on 2026-04-01. What's the weather and any attractions?",
+      "My flight to Paris is Tuesday. What's the weather and any attractions?",
     );
     console.log("SMOKE RESULT:", res);
   } catch (err) {

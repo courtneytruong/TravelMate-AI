@@ -36,7 +36,26 @@ async function createFlightAgent() {
         chat_history: [],
         agent_scratchpad: [],
       });
-      const human = new HumanMessage({ content: String(userInput) });
+
+      let humanContent = "";
+      if (userInput && typeof userInput === "object") {
+        const inp = userInput.input ?? userInput;
+        humanContent =
+          typeof inp === "string" ? inp : (inp?.content ?? String(inp));
+        if (userInput.tripContext) {
+          const tc = userInput.tripContext;
+          const pieces = [];
+          if (tc.flightNumber) pieces.push(`FlightNumber: ${tc.flightNumber}`);
+          if (tc.departDate) pieces.push(`Date: ${tc.departDate}`);
+          if (tc.destination) pieces.push(`Destination: ${tc.destination}`);
+          if (pieces.length)
+            humanContent += "\n\nTripContext:\n" + pieces.join("\n");
+        }
+      } else {
+        humanContent = String(userInput);
+      }
+
+      const human = new HumanMessage({ content: humanContent });
       const messages = [...systemMessages, human];
       const aiMsg = await llmWithTools.invoke(messages);
       return aiMsg?.content ?? String(aiMsg);

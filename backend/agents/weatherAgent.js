@@ -37,8 +37,65 @@ async function createWeatherAgent() {
         chat_history: [],
         agent_scratchpad: [],
       });
-      const human = new HumanMessage({ content: String(userInput) });
+
+      // Build a human message that includes both the user's input and any tripContext
+      let humanContent = "";
+      if (userInput && typeof userInput === "object") {
+        const inp = userInput.input ?? userInput;
+        humanContent =
+          typeof inp === "string" ? inp : (inp?.content ?? String(inp));
+        if (userInput.tripContext) {
+          const tc = userInput.tripContext;
+          const pieces = [];
+          if (tc.destination) pieces.push(`Destination: ${tc.destination}`);
+          if (tc.departDate) pieces.push(`DepartDate: ${tc.departDate}`);
+          if (tc.returnDate) pieces.push(`ReturnDate: ${tc.returnDate}`);
+          if (tc.flightNumber) pieces.push(`FlightNumber: ${tc.flightNumber}`);
+          if (Array.isArray(tc.preferences) && tc.preferences.length)
+            pieces.push(`Preferences: ${tc.preferences.join(", ")}`);
+          if (pieces.length)
+            humanContent += "\n\nTripContext:\n" + pieces.join("\n");
+
+          // If we have enough context (destination at least), instruct agent to proceed
+          // with defaults instead of asking clarifying questions for minor missing info.
+          if (tc.destination) {
+            const prefs = tc.preferences || [];
+            const hasUnit = prefs.some((p) =>
+              /celsius|fahrenheit|°c|°f/i.test(p),
+            );
+            if (!hasUnit) {
+              humanContent +=
+                "\n\nNote: If temperature units are not provided, include temperatures in both Celsius and Fahrenheit and do not ask for unit preference.";
+            }
+          }
+        }
+      } else {
+        humanContent = String(userInput);
+      }
+
+      const human = new HumanMessage({ content: humanContent });
       const messages = [...systemMessages, human];
+      // If we have explicit tripContext with destination and a depart date,
+      // call the weather tool directly to produce a date-specific forecast.
+      if (
+        userInput &&
+        userInput.tripContext &&
+        userInput.tripContext.destination &&
+        userInput.tripContext.departDate
+      ) {
+        try {
+          const city = userInput.tripContext.destination;
+          const date = userInput.tripContext.departDate;
+          const toolResp = await weatherTool.func({ city, date });
+          const advice = `Packing advice: bring a light waterproof jacket and an umbrella; comfortable walking shoes.`;
+          return `${toolResp}\n\n${advice}`;
+        } catch (err) {
+          // Fall back to LLM if tool call fails
+          const aiMsgFallback = await llmWithTools.invoke(messages);
+          return aiMsgFallback?.content ?? String(aiMsgFallback);
+        }
+      }
+
       const aiMsg = await llmWithTools.invoke(messages);
       return aiMsg?.content ?? String(aiMsg);
     },

@@ -10,6 +10,11 @@ const weatherTool = new DynamicStructuredTool({
     type: "object",
     properties: {
       city: { type: "string", description: "City name" },
+      date: {
+        type: "string",
+        description:
+          "Optional ISO date (YYYY-MM-DD) to return a date-specific forecast",
+      },
       country: {
         type: "string",
         description: "Optional country code (ISO 3166) or country name",
@@ -17,7 +22,7 @@ const weatherTool = new DynamicStructuredTool({
     },
     required: ["city"],
   },
-  func: async ({ city, country } = {}) => {
+  func: async ({ city, country, date } = {}) => {
     try {
       const q = country ? `${city},${country}` : city;
       const apiKey = process.env.OPENWEATHER_API_KEY;
@@ -60,6 +65,28 @@ const weatherTool = new DynamicStructuredTool({
         const cond = chosen.weather?.[0]?.description ?? "N/A";
         return `${d}: ${t}°F, ${cond}`;
       });
+
+      // If a specific date was requested, return a concise forecast for that date
+      if (date) {
+        const target = date;
+        const daysMapLocal = {};
+        for (const item of data.list) {
+          const d = new Date(item.dt * 1000).toISOString().split("T")[0];
+          if (!daysMapLocal[d]) daysMapLocal[d] = [];
+          daysMapLocal[d].push(item);
+        }
+        const items = daysMapLocal[target] || [];
+        if (items.length === 0) {
+          return `No forecast available for ${target} in ${city}.`;
+        }
+        let chosen = items.find(
+          (it) => new Date(it.dt * 1000).getUTCHours() === 12,
+        );
+        if (!chosen) chosen = items[Math.floor(items.length / 2)];
+        const t = Math.round(chosen.main.temp);
+        const cond = chosen.weather?.[0]?.description ?? "N/A";
+        return `Forecast for ${target} in ${city}: ${t}°F, ${cond}.`;
+      }
 
       const summary = formatWeatherResponse(city, data);
       return summary;
