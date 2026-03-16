@@ -58,6 +58,38 @@ async function createFlightAgent() {
       const human = new HumanMessage({ content: humanContent });
       const messages = [...systemMessages, human];
       const aiMsg = await llmWithTools.invoke(messages);
+
+      // If the LLM invoked a tool, execute it and return the result
+      if (aiMsg.tool_calls && aiMsg.tool_calls.length > 0) {
+        const toolCall = aiMsg.tool_calls[0];
+        const requestedFlightNumber = toolCall.args?.flightNumber;
+        console.log(
+          `[flightAgent] Tool call: ${toolCall.name} with args:`,
+          toolCall.args,
+        );
+        try {
+          const toolResult = await flightTool.func(toolCall.args);
+          console.log(`[flightAgent] Tool result:`, toolResult);
+
+          // Check if the result indicates the flight was not found
+          const resultStr = String(toolResult || "");
+          if (
+            resultStr.includes("No flights found") ||
+            resultStr.includes("Not found")
+          ) {
+            return `Flight ${requestedFlightNumber} not found for the requested date. Please verify the flight number and date.`;
+          }
+
+          // If tool returned data but flight number might not match, still return it
+          // (the synthesis will handle display)
+          return toolResult;
+        } catch (err) {
+          console.error(`[flightAgent] Tool execution failed:`, err);
+          return `Error querying flight status: ${err?.message ?? err}`;
+        }
+      }
+
+      // Otherwise, return the content (for non-tool responses)
       return aiMsg?.content ?? String(aiMsg);
     },
     _debug: { llmWithTools, prompt, tools: [flightTool] },

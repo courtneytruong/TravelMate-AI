@@ -15,6 +15,13 @@ const envPath = fs.existsSync(cwdEnv)
       ? repoRootExample
       : null;
 if (envPath) dotenv.config({ path: envPath });
+// Show which .env path was loaded and mask the AeroDataBox key for debugging
+console.log("Loaded .env:", envPath || "none");
+const _rapid = process.env.AERODATABOX_API_KEY;
+console.log(
+  "AERODATABOX_API_KEY:",
+  _rapid ? `${_rapid.slice(0, 6)}...${_rapid.slice(-4)}` : "NOT SET",
+);
 
 async function main() {
   const flightNumber = process.argv[2];

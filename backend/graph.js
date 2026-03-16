@@ -20,6 +20,7 @@ import createWeatherAgent from "./agents/weatherAgent.js";
 import createFlightAgent from "./agents/flightAgent.js";
 import createAttractionsAgent from "./agents/attractionsAgent.js";
 import createRestaurantAgent from "./agents/restaurantAgent.js";
+import { supervisorPrompt, systemPrompt } from "./prompts.js";
 
 export function buildGraph() {
   return { nodes: [], edges: [] };
@@ -99,6 +100,17 @@ async function compileGraph() {
   return _compiledGraphPromise;
 }
 
+// Helper: map agent name to node function
+function getAgentNodeFn(agentName) {
+  const agentMap = {
+    weather_agent: weatherAgentNode,
+    flight_agent: flightAgentNode,
+    attractions_agent: attractionsAgentNode,
+    restaurant_agent: restaurantAgentNode,
+  };
+  return agentMap[agentName];
+}
+
 // Invoke the compiled graph: constructs initial state and runs the graph
 export async function invokeGraph(sessionId, message) {
   // Try compiled graph first; fall back to manual orchestration on failure
@@ -125,6 +137,9 @@ export async function invokeGraph(sessionId, message) {
       tripContext: finalState?.tripContext ?? {},
     };
   } catch (compileErr) {
+    console.log(
+      "[invokeGraph] LangGraph compilation failed, using fallback orchestration",
+    );
     // Fallback: orchestrate nodes manually
     const state = {
       messages: [new HumanMessage({ content: String(message) })],
@@ -140,39 +155,18 @@ export async function invokeGraph(sessionId, message) {
 
     // Run each agent listed in nextAgents
     const agents = state.nextAgents || [];
-    for (const a of agents) {
-      if (a === "weather_agent") {
-        const upd = await weatherAgentNode(state);
+    for (const agentName of agents) {
+      const agentNodeFn = getAgentNodeFn(agentName);
+      if (agentNodeFn) {
+        const upd = await agentNodeFn(state);
         Object.assign(state, {
           agentResults: {
             ...(state.agentResults || {}),
             ...(upd.agentResults || {}),
           },
         });
-      } else if (a === "flight_agent") {
-        const upd = await flightAgentNode(state);
-        Object.assign(state, {
-          agentResults: {
-            ...(state.agentResults || {}),
-            ...(upd.agentResults || {}),
-          },
-        });
-      } else if (a === "attractions_agent") {
-        const upd = await attractionsAgentNode(state);
-        Object.assign(state, {
-          agentResults: {
-            ...(state.agentResults || {}),
-            ...(upd.agentResults || {}),
-          },
-        });
-      } else if (a === "restaurant_agent") {
-        const upd = await restaurantAgentNode(state);
-        Object.assign(state, {
-          agentResults: {
-            ...(state.agentResults || {}),
-            ...(upd.agentResults || {}),
-          },
-        });
+      } else {
+        console.warn(`[invokeGraph] Unknown agent: ${agentName}`);
       }
     }
 
@@ -366,7 +360,20 @@ export async function extractTripContext(latestMessage, existing = {}, llm) {
   if (parsed?.flightNumber != null) updated.flightNumber = parsed.flightNumber;
   if (parsed?.preferences != null) updated.preferences = parsed.preferences;
 
-  // If departDate wasn't extracted, attempt natural-language parsing on the message
+  // Fallback: if flightNumber still wasn't extracted, use regex to find patterns like
+  // "DL8739", "AA100", "flight DL8739", etc. This ensures we catch flight numbers
+  // that the LLM might have missed.
+  if (!updated.flightNumber) {
+    const flightMatch = text.match(/(?:flight\s+)?([A-Z]{1,3}\d{1,5})/i);
+    if (flightMatch) {
+      updated.flightNumber = flightMatch[1].toUpperCase();
+      console.log(
+        `[extractTripContext] Regex fallback extracted flightNumber: ${updated.flightNumber}`,
+      );
+    }
+  }
+
+  // If departDate still wasn't extracted, attempt natural-language parsing on the message
   if (!updated.departDate) {
     const pd = parseToISO(text);
     if (pd) updated.departDate = pd;
@@ -390,7 +397,7 @@ export async function supervisorNode(state) {
     ),
   });
 
-  // Build input text from the messages array
+  // Build input text from the messages array and prepend the supervisor prompt
   const messagesText = Array.isArray(state.messages)
     ? state.messages
         .map((m) =>
@@ -398,6 +405,13 @@ export async function supervisorNode(state) {
         )
         .join("\n")
     : String(state.messages || "");
+
+  // Prepare messages so the routing LLM receives the Supervisor instructions
+  // as a SystemMessage (ensures system-level instructions are respected).
+  const routeMsgs = [
+    new SystemMessage({ content: supervisorPrompt }),
+    new HumanMessage({ content: messagesText }),
+  ];
 
   // Construct a ChatOpenAI base model for structured routing
   let baseModel;
@@ -415,15 +429,18 @@ export async function supervisorNode(state) {
     throw new Error(`Failed to construct ChatOpenAI LLM: ${err.message}`);
   }
 
-  // Use a structured-output wrapper for routing decisions
+  // Use a structured-output wrapper for routing decisions and call it with
+  // the supervisor instructions plus the conversation context so the model
+  // follows the Supervisor prompt when producing the routing JSON.
   const routeWrapper = baseModel.withStructuredOutput(RoutingSchema);
 
-  // Call the route wrapper with the concatenated messages text
+  // Call the route wrapper with structured messages so the model follows the
+  // Supervisor prompt when producing the routing JSON.
   let decision;
   try {
     const raw = routeWrapper.call
-      ? await routeWrapper.call(messagesText)
-      : await routeWrapper.invoke(messagesText);
+      ? await routeWrapper.call(routeMsgs)
+      : await routeWrapper.invoke(routeMsgs);
     decision =
       raw?.outputParsed ??
       (typeof raw === "string" ? JSON.parse(raw) : (raw?.content ?? raw));
@@ -442,12 +459,37 @@ export async function supervisorNode(state) {
     baseModel,
   );
 
-  // Log routing decision
-  console.log("[Supervisor] Routing to:", decision?.agents);
+  console.log("[Supervisor] Extracted trip context:", {
+    destination: updatedTrip?.destination,
+    departDate: updatedTrip?.departDate,
+    returnDate: updatedTrip?.returnDate,
+    flightNumber: updatedTrip?.flightNumber,
+    preferences: updatedTrip?.preferences,
+  });
+
+  // Derive final agent list. Log both LLM decision and final decision.
+  let agents = decision?.agents ?? [];
+  console.log("[Supervisor] LLM router decision:", agents);
+
+  if (updatedTrip?.flightNumber) {
+    if (!Array.isArray(agents) || agents.length === 0) {
+      agents = ["flight_agent"];
+      console.log(
+        "[Supervisor] No agents from LLM, forcing flight_agent (flightNumber detected)",
+      );
+    } else if (!agents.includes("flight_agent")) {
+      agents = ["flight_agent", ...agents.filter((a) => a !== "flight_agent")];
+      console.log(
+        "[Supervisor] Prepending flight_agent to ensure flights are queried",
+      );
+    }
+  }
+
+  console.log("[Supervisor] Final routing to:", agents);
 
   // Return partial state update
   return {
-    nextAgents: decision?.agents ?? [],
+    nextAgents: agents ?? [],
     tripContext: updatedTrip,
   };
 }
@@ -460,110 +502,82 @@ export function routingFunction(state) {
   return first;
 }
 
-// Node implementations for agents
-export async function weatherAgentNode(state) {
-  try {
-    console.log("[Node] Running: weather_agent");
-    const agent = await createWeatherAgent();
-    const latest =
-      Array.isArray(state.messages) && state.messages.length
-        ? state.messages[state.messages.length - 1]
-        : "";
-    const out = await agent.run({
-      input: latest,
-      chat_history: state.messages,
-      tripContext: state.tripContext,
-    });
-    const text = out?.output ?? out;
-    return { agentResults: { ...(state.agentResults || {}), weather: text } };
-  } catch (err) {
-    return {
-      agentResults: {
-        ...(state.agentResults || {}),
-        weather: String(err?.message ?? err),
-      },
-    };
-  }
+// Factory to create agent nodes (eliminates duplication)
+function createAgentNode(agentFactory, resultKey, agentName) {
+  return async (state) => {
+    try {
+      console.log(`[Node] Running: ${agentName}`);
+      const agent = await agentFactory();
+      const latest =
+        Array.isArray(state.messages) && state.messages.length
+          ? state.messages[state.messages.length - 1]
+          : "";
+
+      // Log input and context for debugging
+      const inputText =
+        typeof latest === "string" ? latest : latest?.content || "";
+      if (agentName === "flight_agent") {
+        console.log(`[Node] flight_agent input: ${inputText.slice(0, 100)}`);
+        console.log(`[Node] flight_agent tripContext:`, state.tripContext);
+      }
+
+      const out = await agent.run({
+        input: latest,
+        chat_history: state.messages,
+        tripContext: state.tripContext,
+      });
+      const text = out?.output ?? out;
+      const resultText = String(text);
+
+      if (agentName === "flight_agent") {
+        console.log(`[Node] flight_agent output length: ${resultText.length}`);
+        if (resultText.length > 0) {
+          console.log(
+            `[Node] flight_agent output: ${resultText.slice(0, 200)}`,
+          );
+        }
+      }
+
+      console.log(`[Node] ${agentName} result length: ${resultText.length}`);
+      return {
+        agentResults: {
+          ...(state.agentResults || {}),
+          [resultKey]: resultText,
+        },
+      };
+    } catch (err) {
+      console.error(`[Node] ${agentName} error:`, err?.message ?? err);
+      return {
+        agentResults: {
+          ...(state.agentResults || {}),
+          [resultKey]: String(err?.message ?? err),
+        },
+      };
+    }
+  };
 }
 
-export async function flightAgentNode(state) {
-  try {
-    console.log("[Node] Running: flight_agent");
-    const agent = await createFlightAgent();
-    const latest =
-      Array.isArray(state.messages) && state.messages.length
-        ? state.messages[state.messages.length - 1]
-        : "";
-    const out = await agent.run({
-      input: latest,
-      chat_history: state.messages,
-      tripContext: state.tripContext,
-    });
-    const text = out?.output ?? out;
-    return { agentResults: { ...(state.agentResults || {}), flight: text } };
-  } catch (err) {
-    return {
-      agentResults: {
-        ...(state.agentResults || {}),
-        flight: String(err?.message ?? err),
-      },
-    };
-  }
-}
-
-export async function attractionsAgentNode(state) {
-  try {
-    console.log("[Node] Running: attractions_agent");
-    const agent = await createAttractionsAgent();
-    const latest =
-      Array.isArray(state.messages) && state.messages.length
-        ? state.messages[state.messages.length - 1]
-        : "";
-    const out = await agent.run({
-      input: latest,
-      chat_history: state.messages,
-      tripContext: state.tripContext,
-    });
-    const text = out?.output ?? out;
-    return {
-      agentResults: { ...(state.agentResults || {}), attractions: text },
-    };
-  } catch (err) {
-    return {
-      agentResults: {
-        ...(state.agentResults || {}),
-        attractions: String(err?.message ?? err),
-      },
-    };
-  }
-}
-
-export async function restaurantAgentNode(state) {
-  try {
-    console.log("[Node] Running: restaurant_agent");
-    const agent = await createRestaurantAgent();
-    const latest =
-      Array.isArray(state.messages) && state.messages.length
-        ? state.messages[state.messages.length - 1]
-        : "";
-    const out = await agent.run({
-      input: latest,
-      chat_history: state.messages,
-      tripContext: state.tripContext,
-    });
-    const text = out?.output ?? out;
-    return {
-      agentResults: { ...(state.agentResults || {}), restaurants: text },
-    };
-  } catch (err) {
-    return {
-      agentResults: {
-        ...(state.agentResults || {}),
-        restaurants: String(err?.message ?? err),
-      },
-    };
-  }
-}
+// Agent node creators using the factory
+export const weatherAgentNode = createAgentNode(
+  createWeatherAgent,
+  "weather",
+  "weather_agent",
+);
+export const flightAgentNode = createAgentNode(
+  createFlightAgent,
+  "flight",
+  "flight_agent",
+);
+export const attractionsAgentNode = createAgentNode(
+  createAttractionsAgent,
+  "attractions",
+  "attractions_agent",
+);
+export const restaurantAgentNode = createAgentNode(
+  createRestaurantAgent,
+  "restaurants",
+  "restaurant_agent",
+);
 
 // synthesisNode: merge agentResults into a single assistant reply and append as AIMessage
 export async function synthesisNode(state) {
@@ -581,7 +595,7 @@ export async function synthesisNode(state) {
       entries.push({ key: k, text: sval });
     }
 
-    const systemPrompt = `You are a friendly travel assistant. Merge the provided agent results naturally into one concise helpful reply. Do not repeat section headers verbatim; instead weave the information together. Lead with the most time-sensitive information: flights first, then weather, then activities and restaurants. Format any lists cleanly with short bullet points when appropriate. Keep tone friendly and actionable.`;
+    // Use centralized systemPrompt from backend/prompts.js for consistent behavior
     // Instruct the synthesizer to proceed with available info and avoid asking
     // clarifying questions; note assumptions when needed. Include tripContext
     // so the assistant can reference extracted details in the final reply.

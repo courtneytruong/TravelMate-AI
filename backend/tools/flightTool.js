@@ -36,12 +36,10 @@ const flightTool = new DynamicStructuredTool({
     try {
       if (!flightNumber) return "Invalid input: flightNumber is required.";
 
-      // Normalize and validate
-      const normalized = flightNumber.replace(/\s+/g, "").toUpperCase();
-      const re = /^[A-Z]{2}[0-9]{1,4}$/;
-      if (!re.test(normalized)) {
-        return "Invalid input: flightNumber must be two letters followed by 1-4 digits (e.g. AA100).";
-      }
+      // Use the flight number as provided (trim whitespace). Do not enforce
+      // a strict regex or force uppercase — some carriers use nonstandard
+      // formats that should be passed through unchanged.
+      const normalized = String(flightNumber).trim();
 
       const queryDate = date || todayYYYYMMDD();
 
@@ -61,6 +59,12 @@ const flightTool = new DynamicStructuredTool({
           "X-RapidAPI-Host": "aerodatabox.p.rapidapi.com",
         },
       });
+
+      // AeroDataBox returns 204 No Content when no flights match the query
+      if (resp && resp.status === 204) {
+        console.error("flightTool: AeroDataBox returned 204 No Content");
+        return `No flights found for ${normalized} on ${queryDate}.`;
+      }
 
       // Debug info: log status and a small preview when troubleshooting
       if (!resp || !resp.data) {
@@ -145,7 +149,28 @@ const flightTool = new DynamicStructuredTool({
 
       return result;
     } catch (err) {
+      // Log helpful diagnostics for axios errors
+      const status = err?.response?.status;
+      const respData = err?.response?.data;
       console.error("flightTool error", err?.message ?? err);
+      if (status) console.error("flightTool response status:", status);
+      if (respData) {
+        try {
+          console.error(
+            "flightTool response data:",
+            typeof respData === "object"
+              ? JSON.stringify(respData).slice(0, 2000)
+              : String(respData),
+          );
+        } catch (e) {
+          console.error("flightTool response data (stringify failed)");
+        }
+      }
+
+      if (status === 403) {
+        return "Flight data unavailable: API access denied (403). Check AERODATABOX_API_KEY and RapidAPI plan.";
+      }
+
       return "Flight data is temporarily unavailable. Please check the airline website.";
     }
   },
