@@ -1,6 +1,26 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import { invokeGraph } from "../../graph.js";
+import { invokeGraph } from "./graph.js";
+
+// Startup check — confirm env vars are loaded
+const requiredEnvVars = [
+  "GITHUB_TOKEN",
+  "OPENWEATHER_API_KEY",
+  "FOURSQUARE_API_KEY",
+];
+const missingVars = requiredEnvVars.filter((key) => !process.env[key]);
+
+if (missingVars.length > 0) {
+  console.error("❌ Missing environment variables:", missingVars.join(", "));
+  console.error("Make sure your .env file is in the backend/ folder.");
+  process.exit(1); // Stop the server immediately with a clear error
+} else {
+  console.log("✅ Environment variables loaded successfully");
+  console.log("GITHUB_TOKEN set:", !!process.env.GITHUB_TOKEN);
+  console.log("OPENWEATHER_API_KEY set:", !!process.env.OPENWEATHER_API_KEY);
+  console.log("FOURSQUARE_API_KEY set:", !!process.env.FOURSQUARE_API_KEY);
+}
 
 const app = express();
 

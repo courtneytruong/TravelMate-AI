@@ -1,14 +1,15 @@
 // backend/graph.js
-// Graph utilities and LangGraph state definition
+// LangGraph state definition and nodes for TravelMate AI chatbot
+// Compatible with @langchain/langgraph 1.2.x
 
 import {
   Annotation,
-  messagesStateReducer,
+  MessagesAnnotation,
   StateGraph,
   MemorySaver,
+  START,
   END,
 } from "@langchain/langgraph";
-import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import {
   AIMessage,
@@ -17,644 +18,884 @@ import {
 } from "@langchain/core/messages";
 import * as chrono from "chrono-node";
 import createWeatherAgent from "./agents/weatherAgent.js";
-import createFlightAgent from "./agents/flightAgent.js";
 import createAttractionsAgent from "./agents/attractionsAgent.js";
 import createRestaurantAgent from "./agents/restaurantAgent.js";
-import { supervisorPrompt, systemPrompt } from "./prompts.js";
+import createFlightAgent from "./agents/flightAgent.js";
+import { setMaxListeners } from "events";
 
-export function buildGraph() {
-  return { nodes: [], edges: [] };
+// Increase max listeners to suppress EventTarget memory leak warning
+// caused by multiple simultaneous LLM calls each registering abort listeners.
+setMaxListeners(25);
+
+// ============================================================================
+// SHARED LLM — lazy getter
+// Defined before all node functions so every reference resolves correctly.
+// Created on first use so dotenv has loaded before the API key is read.
+// ============================================================================
+
+let _sharedLLM = null;
+
+function getSharedLLM() {
+  if (_sharedLLM) return _sharedLLM;
+
+  const apiKey = process.env.GITHUB_TOKEN || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "Missing LLM credentials — set GITHUB_TOKEN or OPENAI_API_KEY in your .env file",
+    );
+  }
+
+  _sharedLLM = new ChatOpenAI({
+    model: "gpt-4o-mini",
+    apiKey,
+    configuration: {
+      baseURL:
+        process.env.GITHUB_MODELS_BASE_URL ||
+        "https://models.github.ai/inference",
+    },
+  });
+
+  console.log(
+    "[getSharedLLM] LLM instance created with apiKey ending in:",
+    apiKey.slice(-6),
+  );
+
+  return _sharedLLM;
 }
 
-// Placeholder graph invocation used by server/chat endpoint
+// ============================================================================
+// RETRY HELPER
+// Wraps any async fn() with exponential backoff on 429 rate limit errors.
+// ============================================================================
+
+/**
+ * Calls fn() with exponential backoff retry on 429 rate limit errors.
+ * @param {Function} fn - Async function to call
+ * @param {number} retries - Max retry attempts (default 3)
+ * @param {number} delayMs - Base delay in ms, doubles each retry (default 1000)
+ * @returns {Promise<any>}
+ */
+async function callWithRetry(fn, retries = 3, delayMs = 1000) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const is429 =
+        err?.status === 429 ||
+        err?.response?.status === 429 ||
+        (err?.message &&
+          (err.message.includes("429") ||
+            err.message.toLowerCase().includes("rate limit")));
+
+      if (is429 && attempt < retries) {
+        const waitMs = delayMs * Math.pow(2, attempt);
+        console.warn(
+          `[callWithRetry] Attempt ${attempt + 1}: rate limited, waiting ${waitMs}ms`,
+        );
+        await new Promise((r) => setTimeout(r, waitMs));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+// ============================================================================
+// TRAVEL KEYWORDS REGEX
+// Expanded to catch common phrasings like "go to", "want to go", "traveling to"
+// ============================================================================
+
+const TRAVEL_KEYWORDS =
+  /\b(fly|flying|flight|hotel|trip|travel|traveling|travelling|go\s+to|going\s+to|want\s+to\s+go|visiting|visit|heading\s+to|headed\s+to|depart|arrive|arriving|restaurant|food|eat|eating|weather|temperature|climate|book|booking|vacation|holiday|attraction|activity|activities|things\s+to\s+do|sightseeing|tour|destination|airport|airline|return|pack|packing|luggage|passport|visa)\b/i;
+
+// ============================================================================
+// GRAPH STATE
+// Uses MessagesAnnotation.spec — the confirmed working pattern for langgraph
+// 1.x that ensures invoke() returns messages correctly.
+// ============================================================================
+
+export const GraphState = Annotation.Root({
+  // Spread MessagesAnnotation.spec for correct 1.x message handling
+  ...MessagesAnnotation.spec,
+
+  // phase drives conditional routing — values:
+  // "intake" | "resolving" | "lookup" | "synthesis" | "followup"
+  phase: Annotation({
+    reducer: (_, update) => update ?? _,
+    default: () => "intake",
+  }),
+
+  // tripContext merged shallowly — only updated fields overwrite existing ones
+  tripContext: Annotation({
+    reducer: (current, update) => ({ ...(current ?? {}), ...(update ?? {}) }),
+    default: () => ({
+      destination: null,
+      date: null,
+      flightNumber: null,
+      resolvedDestination: null,
+      flightStatus: null,
+      weatherData: null,
+      attractionsData: null,
+      restaurantData: null,
+      flightLookupFailed: false,
+      lookupComplete: false,
+    }),
+  }),
+
+  // sessionId replaced entirely when updated
+  sessionId: Annotation({
+    reducer: (_, update) => update ?? _,
+    default: () => "",
+  }),
+});
+
+// ============================================================================
+// EXTRACT TRIP INFO HELPER
+// Pure regex + chrono — zero LLM calls to preserve GitHub Models rate limit
+// quota for the synthesis step where LLM output actually matters.
+// ============================================================================
+
+/**
+ * Extracts destination, date, and flightNumber from a user message.
+ * Uses regex and chrono — no LLM call needed.
+ *
+ * @param {string|object} text - User message string or LangChain message object
+ * @returns {Promise<{destination: string|null, date: string|null, flightNumber: string|null}>}
+ */
+export async function extractTripInfo(text) {
+  const textStr =
+    typeof text === "string" ? text : (text?.content ?? String(text));
+
+  console.log("[extractTripInfo] Extracting from:", textStr.slice(0, 80));
+
+  // Extract flight number — patterns like AA123, DL4052, UA1 etc.
+  // Requires uppercase letters to avoid false positives on lowercase words.
+  const flightMatch = textStr.match(/\b([A-Z]{1,3}\d{1,4})\b/);
+  const flightNumber = flightMatch ? flightMatch[1].toUpperCase() : null;
+
+  // Extract date using chrono natural language parsing — no LLM needed
+  let date = null;
+  try {
+    const parsed = chrono.parseDate(textStr);
+    if (parsed) {
+      date = [
+        parsed.getFullYear(),
+        String(parsed.getMonth() + 1).padStart(2, "0"),
+        String(parsed.getDate()).padStart(2, "0"),
+      ].join("-");
+    }
+  } catch (_) {}
+
+  // Extract destination city — matches capitalised word/phrase after a
+  // travel keyword. Case-sensitive pattern prevents keyword capture.
+  let destination = null;
+  const destPatterns = [
+    /\b(?:to|in|visit(?:ing)?|heading\s+to|headed\s+to|going\s+to|travel(?:ing)?\s+to|flying\s+to|fly\s+to|trip\s+to)\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)/,
+  ];
+
+  const NOT_A_CITY =
+    /^(the|a|an|my|our|your|this|that|april|may|june|july|january|february|march|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|last|this)$/i;
+
+  for (const pattern of destPatterns) {
+    const match = textStr.match(pattern);
+    if (match) {
+      const candidate = match[1].trim();
+      if (!NOT_A_CITY.test(candidate)) {
+        destination = candidate;
+        break;
+      }
+    }
+  }
+
+  console.log("[extractTripInfo] Result:", { destination, date, flightNumber });
+  return { destination, date, flightNumber };
+}
+
+// ============================================================================
+// INTAKE NODE
+// Welcome and re-prompt are hardcoded — no LLM calls — to preserve quota.
+// Routes forward by setting state.phase for intakeRouter to read.
+// ============================================================================
+
+/**
+ * Intake node: sends welcome on first turn, then extracts travel info.
+ * Sets state.phase to drive routing via intakeRouter.
+ *
+ * @param {object} state - Current graph state
+ * @returns {Promise<object>} Partial state update
+ */
+export async function intakeNode(state) {
+  const msgs = Array.isArray(state.messages) ? state.messages : [];
+  const lastMessage = msgs.at(-1);
+  const lastText = lastMessage?.content ?? "";
+
+  // Detect greeting messages like "hi", "hello", "hey" etc.
+  // These should always trigger the welcome message regardless of
+  // whether there is a prior AI message in history. This ensures that
+  // a page reload (which sends "hi" via initChat) always gets a
+  // friendly welcome rather than the re-prompt fallback.
+  const isGreeting =
+    /^(hi|hello|hey|howdy|sup|greetings|start|begin|help)[\s!?.]*$/i.test(
+      lastText.trim(),
+    );
+
+  // Send welcome when: no AI message yet OR message is a greeting
+  const hasAIMessageAlready = msgs.some((m) => m instanceof AIMessage);
+
+  if (!hasAIMessageAlready || isGreeting) {
+    console.log(
+      "[intakeNode] Sending welcome message (greeting or first turn)",
+    );
+    return {
+      messages: [
+        new AIMessage({
+          content:
+            '👋 Welcome to TravelMate AI! I can help you plan your trip with live weather, restaurant recommendations, and things to do.\n\nTo get started, please share either:\n- ✈️ A **flight number** and travel date (e.g. "AA123 on April 15th")\n- 📍 A **destination city** and travel date (e.g. "Tokyo on April 15th")',
+        }),
+      ],
+      phase: "intake",
+    };
+  }
+
+  // AI has already spoken and message is not a greeting —
+  // extract travel info from the latest human message
+  const latestText = lastText;
+  const extracted = await extractTripInfo(latestText);
+  console.log("[intakeNode] Extracted:", extracted);
+
+  // Merge extracted info with existing tripContext so partial follow-up
+  // answers like "3/19/2026" or "Kahului" are understood in context.
+  // This fixes the bug where the bot asks for a date or destination and
+  // the user answers with just that piece of info.
+  const existingContext = state.tripContext ?? {};
+
+  const mergedContext = {
+    destination: extracted.destination ?? existingContext.destination ?? null,
+    date: extracted.date ?? existingContext.date ?? null,
+    flightNumber:
+      extracted.flightNumber ?? existingContext.flightNumber ?? null,
+  };
+
+  // If extraction found nothing at all, try to infer from context
+  if (!extracted.destination && !extracted.date && !extracted.flightNumber) {
+    // Try parsing the whole message as a standalone date
+    // Handles cases like "3/19/2026" or "March 19th" as follow-up answers
+    if (!mergedContext.date) {
+      try {
+        const parsed = chrono.parseDate(latestText);
+        if (parsed) {
+          mergedContext.date = [
+            parsed.getFullYear(),
+            String(parsed.getMonth() + 1).padStart(2, "0"),
+            String(parsed.getDate()).padStart(2, "0"),
+          ].join("-");
+          console.log(
+            "[intakeNode] Standalone date parsed:",
+            mergedContext.date,
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Try treating the message as a city name if we have no destination yet
+    // and the message looks like a place name (short, letters and spaces only)
+    if (!mergedContext.destination) {
+      const cityGuess = latestText.trim();
+      if (
+        cityGuess.length > 0 &&
+        cityGuess.length < 40 &&
+        /^[A-Za-z\s\-]+$/.test(cityGuess)
+      ) {
+        mergedContext.destination = cityGuess;
+        console.log(
+          "[intakeNode] Treating message as destination:",
+          mergedContext.destination,
+        );
+      }
+    }
+  }
+
+  // Bug fix: if flight lookup previously failed, the user is now providing
+  // a destination manually. Don't re-trigger flight resolution — instead
+  // use their message as the destination and clear the flight number so
+  // the graph routes to lookup instead of resolving again.
+  if (existingContext.flightLookupFailed && mergedContext.flightNumber) {
+    const cityGuess = latestText.trim();
+    if (
+      cityGuess.length > 0 &&
+      cityGuess.length < 40 &&
+      /^[A-Za-z\s\-]+$/.test(cityGuess)
+    ) {
+      mergedContext.destination = cityGuess;
+      mergedContext.flightNumber = null;
+      console.log(
+        "[intakeNode] Flight lookup previously failed — using user input as destination:",
+        mergedContext.destination,
+      );
+    }
+  }
+
+  console.log("[intakeNode] Merged context:", mergedContext);
+
+  if (mergedContext.flightNumber) {
+    console.log("[intakeNode] Flight number found — phase -> resolving");
+    return {
+      messages: [
+        new AIMessage({
+          content: `Got it! Let me look up flight **${mergedContext.flightNumber}** and find travel info for your destination. One moment... ✈️`,
+        }),
+      ],
+      tripContext: mergedContext,
+      phase: "resolving",
+    };
+  }
+
+  if (mergedContext.destination && mergedContext.date) {
+    console.log("[intakeNode] Destination + date found — phase -> lookup");
+    return {
+      messages: [
+        new AIMessage({
+          content: `Got it! Let me look up weather, restaurants, and things to do in **${mergedContext.destination}** for **${mergedContext.date}**. One moment... 🔍`,
+        }),
+      ],
+      tripContext: mergedContext,
+      phase: "lookup",
+    };
+  }
+
+  if (mergedContext.destination && !mergedContext.date) {
+    console.log("[intakeNode] Destination found, no date — asking for date");
+    return {
+      messages: [
+        new AIMessage({
+          content: `Great! What date are you planning to travel to ${mergedContext.destination}?`,
+        }),
+      ],
+      tripContext: mergedContext,
+      phase: "intake",
+    };
+  }
+
+  // Nothing useful extracted even after context merging — re-prompt
+  console.log("[intakeNode] Nothing extracted — sending hardcoded re-prompt");
+  return {
+    messages: [
+      new AIMessage({
+        content:
+          'I didn\'t quite catch that! Please share one of the following:\n- ✈️ A **flight number** and travel date (e.g. "AA123 on April 15th")\n- 📍 A **destination city** and travel date (e.g. "Tokyo on April 15th")',
+      }),
+    ],
+    phase: "intake",
+  };
+}
+
+// ============================================================================
+// RESOLVE NODE
+// Calls the flight agent to look up flight info and extract the destination.
+// On success sets resolvedDestination and routes to lookup.
+// On failure sets flightLookupFailed and returns to intake for re-entry.
+// ============================================================================
+
+/**
+ * Resolve node: calls the flight agent to look up flight number and destination.
+ * @param {object} state - Current graph state
+ * @returns {Promise<object>} Partial state update
+ */
+export async function resolveNode(state) {
+  const flightNumber = state.tripContext?.flightNumber;
+  console.log("[resolveNode] Resolving flight:", flightNumber);
+
+  if (!flightNumber) {
+    console.log("[resolveNode] No flight number — cannot resolve");
+    return {
+      messages: [
+        new AIMessage({
+          content:
+            "I couldn't find a flight number. Please provide a destination city and date instead, or try sharing your flight number again.",
+        }),
+      ],
+      tripContext: { flightLookupFailed: true },
+      phase: "intake",
+    };
+  }
+
+  try {
+    const flightAgent = await createFlightAgent();
+    console.log("[resolveNode] Invoking flight agent with:", flightNumber);
+
+    const flightResult = await callWithRetry(() =>
+      flightAgent.invoke({ input: flightNumber }),
+    );
+
+    const flightOutput = flightResult?.output || String(flightResult || "");
+    const flightStatus = flightOutput;
+
+    // Attempt to extract destination city from the flight agent's response
+    let resolvedDestination = null;
+    const destMatch = flightOutput.match(
+      /(?:to|destination|arriving at|going to)\s+([A-Z][a-zA-Z\s]+?)(?:\.|,|$)/i,
+    );
+    if (destMatch) {
+      resolvedDestination = destMatch[1].trim();
+    }
+
+    console.log("[resolveNode] Resolved destination:", resolvedDestination);
+
+    if (resolvedDestination) {
+      console.log("[resolveNode] -> lookup_node");
+      return {
+        messages: [
+          new AIMessage({
+            content: `Perfect! I found your flight to **${resolvedDestination}**. Now let me look up travel info for you... 🔍`,
+          }),
+        ],
+        tripContext: {
+          resolvedDestination,
+          flightStatus,
+          flightLookupFailed: false,
+        },
+        phase: "lookup",
+      };
+    } else {
+      console.log("[resolveNode] Flight found but destination not extracted");
+      return {
+        messages: [
+          new AIMessage({
+            content:
+              "I found information about your flight, but couldn't determine the destination city. Could you tell me which city you're traveling to?",
+          }),
+        ],
+        tripContext: { flightStatus, flightLookupFailed: true },
+        phase: "intake",
+      };
+    }
+  } catch (err) {
+    console.error("[resolveNode] Flight agent error:", err?.message);
+    return {
+      messages: [
+        new AIMessage({
+          content:
+            "I had trouble looking up that flight. Could you provide a destination city and date instead?",
+        }),
+      ],
+      tripContext: { flightLookupFailed: true },
+      phase: "intake",
+    };
+  }
+}
+
+// ============================================================================
+// LOOKUP NODE
+// Runs weather, attractions, and restaurant agents in parallel.
+// Uses Promise.allSettled so one failure doesn't block the others.
+// ============================================================================
+
+/**
+ * Lookup node: fetches weather, attractions, and restaurant data in parallel.
+ * @param {object} state - Current graph state
+ * @returns {Promise<object>} Partial state update
+ */
+export async function lookupNode(state) {
+  const destination =
+    state.tripContext?.resolvedDestination || state.tripContext?.destination;
+  const date = state.tripContext?.date;
+
+  console.log("[lookupNode] Destination:", destination, "Date:", date);
+
+  if (!destination) {
+    console.log("[lookupNode] No destination — returning to intake");
+    return {
+      messages: [
+        new AIMessage({
+          content:
+            "I need a destination to look up travel information. Please provide one.",
+        }),
+      ],
+      phase: "intake",
+    };
+  }
+
+  // Stagger agent calls by 1.5s each to avoid simultaneous GitHub Models
+  // rate limit hits. Weather fires immediately, attractions after 1.5s,
+  // restaurants after 3s. callWithRetry handles any remaining rate limits.
+  const staggerDelay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  console.log(
+    "[lookupNode] Firing agents with staggered delays (0s / 1.5s / 3s)",
+  );
+
+  const [weatherResult, attractionsResult, restaurantResult] =
+    await Promise.allSettled([
+      // Weather fires immediately
+      createWeatherAgent().then((agent) =>
+        callWithRetry(() =>
+          agent.invoke({
+            input: date ? `${destination} on ${date}` : destination,
+          }),
+        ),
+      ),
+      // Attractions fires after 1.5s
+      staggerDelay(1500).then(() =>
+        createAttractionsAgent().then((agent) =>
+          callWithRetry(() => agent.invoke({ input: destination })),
+        ),
+      ),
+      // Restaurants fires after 3s
+      staggerDelay(3000).then(() =>
+        createRestaurantAgent().then((agent) =>
+          callWithRetry(() => agent.invoke({ input: destination })),
+        ),
+      ),
+    ]);
+
+  // Extract output strings — use nullish coalescing to avoid [object Object]
+  // when value is an object like { output: "" } rather than a plain string.
+  const weatherData =
+    weatherResult.status === "fulfilled"
+      ? String(weatherResult.value?.output ?? weatherResult.value ?? "")
+      : "Weather data temporarily unavailable";
+
+  const attractionsData =
+    attractionsResult.status === "fulfilled"
+      ? String(attractionsResult.value?.output ?? attractionsResult.value ?? "")
+      : "Attractions data temporarily unavailable";
+
+  const restaurantData =
+    restaurantResult.status === "fulfilled"
+      ? String(restaurantResult.value?.output ?? restaurantResult.value ?? "")
+      : "Restaurant data temporarily unavailable";
+
+  if (weatherResult.status === "rejected")
+    console.error(
+      "[lookupNode] Weather failed:",
+      weatherResult.reason?.message,
+    );
+  if (attractionsResult.status === "rejected")
+    console.error(
+      "[lookupNode] Attractions failed:",
+      attractionsResult.reason?.message,
+    );
+  if (restaurantResult.status === "rejected")
+    console.error(
+      "[lookupNode] Restaurants failed:",
+      restaurantResult.reason?.message,
+    );
+
+  console.log("[lookupNode] Weather length:", weatherData.length);
+  console.log("[lookupNode] Attractions length:", attractionsData.length);
+  console.log("[lookupNode] Restaurants length:", restaurantData.length);
+  console.log("[lookupNode] All lookups complete -> synthesis");
+
+  return {
+    tripContext: {
+      weatherData,
+      attractionsData,
+      restaurantData,
+      lookupComplete: true,
+    },
+    phase: "synthesis",
+  };
+}
+
+// ============================================================================
+// SYNTHESIS NODE
+// Combines all agent results into one clean LLM-generated response.
+// Uses a concise prompt to minimize token usage against GitHub Models limits.
+// Falls back to structured formatting only if LLM fails after all retries.
+// ============================================================================
+
+/**
+ * Synthesis node: uses the LLM to combine all travel data into one response.
+ * LLM is called with 5 retries and 2s base delay to handle rate limit spikes.
+ * Falls back to structured plain text only if LLM genuinely fails.
+ *
+ * @param {object} state - Current graph state
+ * @returns {Promise<object>} Partial state update with final AI response
+ */
+export async function synthesisNode(state) {
+  const { weatherData, attractionsData, restaurantData, flightStatus } =
+    state.tripContext ?? {};
+  const destination =
+    state.tripContext?.resolvedDestination || state.tripContext?.destination;
+  const flightNumber = state.tripContext?.flightNumber;
+
+  console.log("[synthesisNode] Building final response for:", destination);
+
+  // Collect non-empty, non-fallback data sources
+  const dataSources = [];
+  if (flightStatus && !flightStatus.includes("temporarily unavailable")) {
+    dataSources.push({ type: "flight", data: flightStatus });
+  }
+  if (weatherData && !weatherData.includes("temporarily unavailable")) {
+    dataSources.push({ type: "weather", data: weatherData });
+  }
+  if (restaurantData && !restaurantData.includes("temporarily unavailable")) {
+    dataSources.push({ type: "restaurant", data: restaurantData });
+  }
+  if (attractionsData && !attractionsData.includes("temporarily unavailable")) {
+    dataSources.push({ type: "attractions", data: attractionsData });
+  }
+
+  console.log("[synthesisNode] Valid data sources:", dataSources.length);
+
+  // Header map for consistent section labelling
+  const headerMap = {
+    flight: `✈️ Flight ${flightNumber ?? ""}`,
+    weather: `🌤️ Weather in ${destination}`,
+    restaurant: `🍜 Top Restaurants in ${destination}`,
+    attractions: `🗼 Things To Do in ${destination}`,
+  };
+
+  let finalResponse = "";
+
+  if (dataSources.length === 0) {
+    console.log("[synthesisNode] No valid data");
+    finalResponse =
+      "I wasn't able to gather travel information at this moment. Could you try again or provide more details about your trip?";
+  } else if (dataSources.length === 1) {
+    // Single source — no LLM needed, format directly
+    console.log("[synthesisNode] Single source — formatting directly");
+    const s = dataSources[0];
+    finalResponse =
+      `${headerMap[s.type]}\n${s.data}` +
+      "\n\n💬 Feel free to ask me any follow-up questions about your trip!";
+  } else {
+    // Multiple sources — use LLM to produce a coherent synthesized response.
+    // This is the core generative AI step of the capstone.
+    console.log("[synthesisNode] Multiple sources — calling LLM to synthesize");
+
+    const dataBlocks = dataSources
+      .map((s) => `[${headerMap[s.type].toUpperCase()}]\n${s.data}`)
+      .join("\n\n");
+
+    try {
+      // 5 retries with 2s base delay — gives up to ~62s total wait time,
+      // appropriate for synthesis which only fires once per conversation.
+      finalResponse = await callWithRetry(
+        async () => {
+          const result = await getSharedLLM().invoke([
+            new SystemMessage({
+              content: `You are TravelMate AI, a friendly travel planning assistant.
+Combine the following travel data into one clean, well-formatted response.
+Use these exact emoji section headers in order (omit any section not present):
+${flightNumber ? `✈️ Flight ${flightNumber} — flight status\n` : ""}🌤️ Weather in ${destination} — weather forecast
+🍜 Top Restaurants in ${destination} — dining recommendations
+🗼 Things To Do in ${destination} — attractions and activities
+Keep each section concise — 2-4 bullet points or sentences max.
+End with one warm closing sentence inviting follow-up questions.
+Do not add any sections not listed above.`,
+            }),
+            new HumanMessage({ content: dataBlocks }),
+          ]);
+          return result.content;
+        },
+        5,
+        2000,
+      );
+
+      console.log("[synthesisNode] LLM synthesis succeeded");
+    } catch (err) {
+      // LLM failed after all retries — fall back to structured plain text.
+      // This is a last resort — the LLM path is always attempted first.
+      console.error(
+        "[synthesisNode] LLM synthesis failed after retries — using fallback:",
+        err?.message,
+      );
+      finalResponse =
+        dataSources.map((s) => `${headerMap[s.type]}\n${s.data}`).join("\n\n") +
+        "\n\n💬 Feel free to ask me any follow-up questions about your trip!";
+    }
+  }
+
+  console.log("[synthesisNode] Response length:", finalResponse.length);
+
+  return {
+    messages: [new AIMessage({ content: finalResponse })],
+    phase: "followup",
+  };
+}
+
+// ============================================================================
+// RESOLVE ROUTER
+// Routes after resolveNode based on whether the flight lookup succeeded.
+// ============================================================================
+
+/**
+ * @param {object} state - Current graph state
+ * @returns {string} "lookup_node" or "__end__"
+ */
+function resolveRouter(state) {
+  const failed = state.tripContext?.flightLookupFailed ?? false;
+  console.log("[resolveRouter] flightLookupFailed:", failed);
+  if (failed) {
+    console.log("[resolveRouter] -> __end__ (user must re-enter destination)");
+    return "__end__";
+  }
+  console.log("[resolveRouter] -> lookup_node");
+  return "lookup_node";
+}
+
+// ============================================================================
+// LOOKUP ROUTER
+// Routes after lookupNode based on whether all lookups completed.
+// ============================================================================
+
+/**
+ * @param {object} state - Current graph state
+ * @returns {string} "synthesis_node" or "__end__"
+ */
+function lookupRouter(state) {
+  const complete = state.tripContext?.lookupComplete ?? false;
+  console.log("[lookupRouter] lookupComplete:", complete);
+  if (complete) {
+    console.log("[lookupRouter] -> synthesis_node");
+    return "synthesis_node";
+  }
+  console.log("[lookupRouter] -> __end__");
+  return "__end__";
+}
+
+// ============================================================================
+// INTAKE ROUTER
+// Reads state.phase after intakeNode and returns the next node name.
+// ============================================================================
+
+/**
+ * @param {object} state - Current graph state
+ * @returns {string} Next node name or "__end__"
+ */
+function intakeRouter(state) {
+  const phase = state.phase ?? "intake";
+  console.log("[intakeRouter] phase:", phase);
+
+  if (phase === "resolving") {
+    console.log("[intakeRouter] -> resolve_node");
+    return "resolve_node";
+  }
+  if (phase === "lookup") {
+    console.log("[intakeRouter] -> lookup_node");
+    return "lookup_node";
+  }
+  return "__end__";
+}
+
+// ============================================================================
+// GRAPH COMPILATION
+// ============================================================================
+
 let _compiledGraphPromise = null;
 
-async function compileGraph() {
+// Module-level MemorySaver — reused across compilations so session memory
+// persists correctly between invokeGraph calls.
+const checkpointer = new MemorySaver();
+
+/**
+ * Compiles and caches the LangGraph StateGraph.
+ * Resets cache on failure so next call can retry cleanly.
+ *
+ * @returns {Promise<CompiledGraph>}
+ */
+export async function compileGraph() {
   if (_compiledGraphPromise) return _compiledGraphPromise;
 
   _compiledGraphPromise = (async () => {
-    const sg = new StateGraph({ channels: GraphState });
+    const sg = new StateGraph(GraphState);
 
-    // add nodes
-    sg.addNode("supervisor", supervisorNode, {
-      ends: [
-        "weather_agent",
-        "flight_agent",
-        "attractions_agent",
-        "restaurant_agent",
-        END,
-      ],
+    // ── Nodes ──────────────────────────────────────────────────────────────
+    sg.addNode("intake_node", intakeNode);
+    sg.addNode("resolve_node", resolveNode);
+    sg.addNode("lookup_node", lookupNode);
+    sg.addNode("synthesis_node", synthesisNode);
+
+    // ── Entry point ────────────────────────────────────────────────────────
+    sg.addEdge(START, "intake_node");
+
+    // ── Intake routing ─────────────────────────────────────────────────────
+    sg.addConditionalEdges("intake_node", intakeRouter, {
+      resolve_node: "resolve_node",
+      lookup_node: "lookup_node",
+      __end__: END,
     });
-    sg.addNode("weather_agent", weatherAgentNode, { ends: ["synthesis"] });
-    sg.addNode("flight_agent", flightAgentNode, { ends: ["synthesis"] });
-    sg.addNode("attractions_agent", attractionsAgentNode, {
-      ends: ["synthesis"],
+
+    // ── Resolve routing ────────────────────────────────────────────────────
+    sg.addConditionalEdges("resolve_node", resolveRouter, {
+      lookup_node: "lookup_node",
+      __end__: END,
     });
-    sg.addNode("restaurant_agent", restaurantAgentNode, {
-      ends: ["synthesis"],
+
+    // ── Lookup routing ─────────────────────────────────────────────────────
+    sg.addConditionalEdges("lookup_node", lookupRouter, {
+      synthesis_node: "synthesis_node",
+      __end__: END,
     });
-    sg.addNode("synthesis", synthesisNode, { ends: [END] });
 
-    // entry will be provided at compile time (some langgraph versions don't expose setEntry)
+    // ── Synthesis always ends ──────────────────────────────────────────────
+    sg.addEdge("synthesis_node", END);
 
-    // conditional edges from supervisor based on routingFunction
-    sg.addEdge(
-      "supervisor",
-      "weather_agent",
-      (state) => routingFunction(state) === "weather_agent",
-    );
-    sg.addEdge(
-      "supervisor",
-      "flight_agent",
-      (state) => routingFunction(state) === "flight_agent",
-    );
-    sg.addEdge(
-      "supervisor",
-      "attractions_agent",
-      (state) => routingFunction(state) === "attractions_agent",
-    );
-    sg.addEdge(
-      "supervisor",
-      "restaurant_agent",
-      (state) => routingFunction(state) === "restaurant_agent",
-    );
-    sg.addEdge("supervisor", END, (state) => routingFunction(state) === "END");
-
-    // specialist agents -> synthesis
-    sg.addEdge("weather_agent", "synthesis");
-    sg.addEdge("flight_agent", "synthesis");
-    sg.addEdge("attractions_agent", "synthesis");
-    sg.addEdge("restaurant_agent", "synthesis");
-
-    // synthesis -> END
-    sg.addEdge("synthesis", END);
-
-    const compiled = await sg.compile({
-      checkpointer: new MemorySaver(),
-      entry: "supervisor",
-      validate: false,
-    });
-    return compiled;
-  })();
+    return sg.compile({ checkpointer });
+  })().catch((err) => {
+    _compiledGraphPromise = null;
+    throw err;
+  });
 
   return _compiledGraphPromise;
 }
 
-// Helper: map agent name to node function
-function getAgentNodeFn(agentName) {
-  const agentMap = {
-    weather_agent: weatherAgentNode,
-    flight_agent: flightAgentNode,
-    attractions_agent: attractionsAgentNode,
-    restaurant_agent: restaurantAgentNode,
-  };
-  return agentMap[agentName];
-}
+// ============================================================================
+// INVOKE GRAPH
+// ============================================================================
 
-// Invoke the compiled graph: constructs initial state and runs the graph
+/**
+ * Invokes the compiled graph for a session and message.
+ * Falls back to getState() if invoke() returns no messages (langgraph 1.x).
+ *
+ * @param {string} sessionId - Session ID used as MemorySaver thread_id
+ * @param {string} message - User message text
+ * @returns {Promise<{reply: string, tripContext: object}>}
+ */
 export async function invokeGraph(sessionId, message) {
-  // Try compiled graph first; fall back to manual orchestration on failure
-  try {
-    const compiled = await compileGraph();
+  const compiled = await compileGraph();
+  const config = { configurable: { thread_id: sessionId } };
 
-    const initialState = {
+  const invokeResult = await compiled.invoke(
+    {
       messages: [new HumanMessage({ content: String(message) })],
-    };
-
-    // run the graph
-    const result = await compiled.invoke(initialState, {
-      configurable: { thread_id: sessionId },
-    });
-
-    // Try to extract final state
-    const finalState = result?.state ?? result?.finalState ?? result;
-    const msgs = finalState?.messages ?? [];
-    const last = msgs && msgs.length ? msgs[msgs.length - 1] : null;
-    const finalAIMessage = last?.content ?? String(last ?? "");
-
-    return {
-      reply: finalAIMessage,
-      tripContext: finalState?.tripContext ?? {},
-    };
-  } catch (compileErr) {
-    console.log(
-      "[invokeGraph] LangGraph compilation failed, using fallback orchestration",
-    );
-    // Fallback: orchestrate nodes manually
-    const state = {
-      messages: [new HumanMessage({ content: String(message) })],
-      nextAgents: [],
-      agentResults: {},
-      tripContext: {},
       sessionId,
-    };
-
-    // Supervisor
-    const supUpdate = await supervisorNode(state);
-    Object.assign(state, { ...state, ...supUpdate });
-
-    // Run each agent listed in nextAgents
-    const agents = state.nextAgents || [];
-    for (const agentName of agents) {
-      const agentNodeFn = getAgentNodeFn(agentName);
-      if (agentNodeFn) {
-        const upd = await agentNodeFn(state);
-        Object.assign(state, {
-          agentResults: {
-            ...(state.agentResults || {}),
-            ...(upd.agentResults || {}),
-          },
-        });
-      } else {
-        console.warn(`[invokeGraph] Unknown agent: ${agentName}`);
-      }
-    }
-
-    // Synthesis
-    const synth = await synthesisNode(state);
-    // merge messages if returned
-    if (synth?.messages) state.messages = synth.messages;
-
-    const lastMsg =
-      state.messages && state.messages.length
-        ? state.messages[state.messages.length - 1]
-        : null;
-    return {
-      reply: lastMsg?.content ?? String(lastMsg ?? ""),
-      tripContext: state.tripContext || {},
-    };
-  }
-}
-
-// Define trip context schema
-const TripContext = z
-  .object({
-    destination: z.string().optional().default(""),
-    departDate: z.string().optional().default(""),
-    returnDate: z.string().optional().default(""),
-    flightNumber: z.string().optional().default(""),
-    preferences: z.array(z.string()).optional().default([]),
-  })
-  .default({});
-
-// Define the overall Graph state schema
-const GraphStateSchema = z.object({
-  // messages channel handled by langgraph's messages reducer
-  messages: z.array(z.any()).default([]),
-
-  // nextAgents supports routing to multiple agents at once
-  nextAgents: z.array(z.string()).default([]),
-
-  // collects responses keyed by agent name
-  agentResults: z.record(z.any()).default({}),
-
-  // trip-specific context
-  tripContext: TripContext,
-
-  // session identifier
-  sessionId: z.string().default(""),
-});
-
-// Export the annotation root as `GraphState`
-export const GraphState = Annotation.Root({
-  name: "GraphState",
-  schema: GraphStateSchema,
-  reducers: {
-    messages: messagesStateReducer,
-  },
-});
-
-// Async extract trip context using a provided LLM with structured output
-export async function extractTripContext(latestMessage, existing = {}, llm) {
-  const text =
-    typeof latestMessage === "string"
-      ? latestMessage
-      : latestMessage?.content || "";
-
-  const TripSchema = z.object({
-    destination: z.string().nullable(),
-    departDate: z.string().nullable(),
-    returnDate: z.string().nullable(),
-    flightNumber: z.string().nullable(),
-    preferences: z.array(z.string()).nullable(),
-  });
-
-  // Helper: parse natural-language date strings into ISO YYYY-MM-DD
-  function parseToISO(str) {
-    if (!str) return null;
-    const s = String(str).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    try {
-      const d = chrono.parseDate(s);
-      if (!d) return null;
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      return `${yyyy}-${mm}-${dd}`;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  if (!llm || typeof llm.withStructuredOutput !== "function") {
-    // Fallback: attempt to call the LLM directly and parse JSON from its reply
-    try {
-      const prompt = `Extract travel details from the following message. For each field, return the exact value if explicitly mentioned, or null if it is not explicitly mentioned. Respond only with the structured JSON matching the schema. Message:\n\n${text}`;
-
-      const raw = llm.call ? await llm.call(prompt) : await llm.invoke(prompt);
-      const content =
-        raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw));
-
-      let parsed = null;
-      try {
-        parsed = JSON.parse(
-          typeof content === "string" ? content.trim() : content,
-        );
-      } catch (err) {
-        // Try to extract JSON-like substring
-        const m = String(content).match(/\{[\s\S]*\}/);
-        if (m) {
-          try {
-            parsed = JSON.parse(m[0]);
-          } catch (err2) {
-            parsed = null;
-          }
-        }
-      }
-
-      if (!parsed) return existing;
-
-      const updated = { ...existing };
-      if (parsed?.destination != null) updated.destination = parsed.destination;
-      if (parsed?.departDate != null) {
-        const pd = parseToISO(parsed.departDate) || parsed.departDate || null;
-        if (pd) updated.departDate = pd;
-      }
-      if (parsed?.returnDate != null) {
-        const rd = parseToISO(parsed.returnDate) || parsed.returnDate || null;
-        if (rd) updated.returnDate = rd;
-      }
-      if (parsed?.flightNumber != null)
-        updated.flightNumber = parsed.flightNumber;
-      if (parsed?.preferences != null) updated.preferences = parsed.preferences;
-
-      // If departDate still wasn't extracted, try parsing the free text message
-      if (!updated.departDate) {
-        const pd = parseToISO(text);
-        if (pd) updated.departDate = pd;
-      }
-
-      return updated;
-    } catch (err) {
-      return existing;
-    }
-  }
-
-  const extractor = llm.withStructuredOutput(TripSchema);
-
-  const prompt = `Extract travel details from the following message. For each field, return the exact value if explicitly mentioned, or null if it is not explicitly mentioned. Respond only with the structured JSON matching the schema. Message:\n\n${text}`;
-
-  let parsed;
-  try {
-    const out = await extractor.call(prompt);
-    parsed =
-      out?.outputParsed ?? (typeof out === "string" ? JSON.parse(out) : out);
-  } catch (err) {
-    // Structured extractor failed — fallback to a raw LLM call with JSON parsing
-    try {
-      const raw = llm.call ? await llm.call(prompt) : await llm.invoke(prompt);
-      const content =
-        raw?.content ?? (typeof raw === "string" ? raw : JSON.stringify(raw));
-
-      try {
-        parsed = JSON.parse(
-          typeof content === "string" ? content.trim() : content,
-        );
-      } catch (err2) {
-        const m = String(content).match(/\{[\s\S]*\}/);
-        if (m) {
-          try {
-            parsed = JSON.parse(m[0]);
-          } catch (err3) {
-            return existing;
-          }
-        } else {
-          return existing;
-        }
-      }
-    } catch (err4) {
-      return existing;
-    }
-  }
-
-  const updated = { ...existing };
-  if (parsed?.destination != null) updated.destination = parsed.destination;
-  if (parsed?.departDate != null) {
-    const pd = parseToISO(parsed.departDate) || parsed.departDate || null;
-    if (pd) updated.departDate = pd;
-  }
-  if (parsed?.returnDate != null) {
-    const rd = parseToISO(parsed.returnDate) || parsed.returnDate || null;
-    if (rd) updated.returnDate = rd;
-  }
-  if (parsed?.flightNumber != null) updated.flightNumber = parsed.flightNumber;
-  if (parsed?.preferences != null) updated.preferences = parsed.preferences;
-
-  // Fallback: if flightNumber still wasn't extracted, use regex to find patterns like
-  // "DL8739", "AA100", "flight DL8739", etc. This ensures we catch flight numbers
-  // that the LLM might have missed.
-  if (!updated.flightNumber) {
-    const flightMatch = text.match(/(?:flight\s+)?([A-Z]{1,3}\d{1,5})/i);
-    if (flightMatch) {
-      updated.flightNumber = flightMatch[1].toUpperCase();
-      console.log(
-        `[extractTripContext] Regex fallback extracted flightNumber: ${updated.flightNumber}`,
-      );
-    }
-  }
-
-  // If departDate still wasn't extracted, attempt natural-language parsing on the message
-  if (!updated.departDate) {
-    const pd = parseToISO(text);
-    if (pd) updated.departDate = pd;
-  }
-
-  return updated;
-}
-
-// Supervisor node: uses a GitHub LLM (gpt-4o-mini) with structured output to decide routing
-export async function supervisorNode(state) {
-  // Zod schema for the structured output
-  const RoutingSchema = z.object({
-    agents: z.array(
-      z.enum([
-        "weather_agent",
-        "flight_agent",
-        "attractions_agent",
-        "restaurant_agent",
-        "FINISH",
-      ]),
-    ),
-  });
-
-  // Build input text from the messages array and prepend the supervisor prompt
-  const messagesText = Array.isArray(state.messages)
-    ? state.messages
-        .map((m) =>
-          typeof m === "string" ? m : m.content || JSON.stringify(m),
-        )
-        .join("\n")
-    : String(state.messages || "");
-
-  // Prepare messages so the routing LLM receives the Supervisor instructions
-  // as a SystemMessage (ensures system-level instructions are respected).
-  const routeMsgs = [
-    new SystemMessage({ content: supervisorPrompt }),
-    new HumanMessage({ content: messagesText }),
-  ];
-
-  // Construct a ChatOpenAI base model for structured routing
-  let baseModel;
-  try {
-    const apiKey = process.env.GITHUB_TOKEN || process.env.OPENAI_API_KEY;
-    const baseURL =
-      process.env.GITHUB_MODELS_BASE_URL ||
-      "https://models.github.ai/inference";
-    baseModel = new ChatOpenAI({
-      model: "gpt-4o-mini",
-      apiKey,
-      configuration: { baseURL },
-    });
-  } catch (err) {
-    throw new Error(`Failed to construct ChatOpenAI LLM: ${err.message}`);
-  }
-
-  // Use a structured-output wrapper for routing decisions and call it with
-  // the supervisor instructions plus the conversation context so the model
-  // follows the Supervisor prompt when producing the routing JSON.
-  const routeWrapper = baseModel.withStructuredOutput(RoutingSchema);
-
-  // Call the route wrapper with structured messages so the model follows the
-  // Supervisor prompt when producing the routing JSON.
-  let decision;
-  try {
-    const raw = routeWrapper.call
-      ? await routeWrapper.call(routeMsgs)
-      : await routeWrapper.invoke(routeMsgs);
-    decision =
-      raw?.outputParsed ??
-      (typeof raw === "string" ? JSON.parse(raw) : (raw?.content ?? raw));
-  } catch (err) {
-    throw new Error(`Supervisor LLM call/parse failed: ${err.message}`);
-  }
-
-  // Update tripContext from latest message
-  const latest =
-    Array.isArray(state.messages) && state.messages.length
-      ? state.messages[state.messages.length - 1]
-      : "";
-  const updatedTrip = await extractTripContext(
-    latest,
-    state.tripContext || {},
-    baseModel,
+    },
+    config,
   );
 
-  console.log("[Supervisor] Extracted trip context:", {
-    destination: updatedTrip?.destination,
-    departDate: updatedTrip?.departDate,
-    returnDate: updatedTrip?.returnDate,
-    flightNumber: updatedTrip?.flightNumber,
-    preferences: updatedTrip?.preferences,
-  });
+  console.log("[invokeGraph] invokeResult type:", typeof invokeResult);
 
-  // Derive final agent list. Log both LLM decision and final decision.
-  let agents = decision?.agents ?? [];
-  console.log("[Supervisor] LLM router decision:", agents);
+  // Use invoke result directly — fall back to getState() if messages missing
+  let finalMessages = invokeResult?.messages;
+  let finalTripContext = invokeResult?.tripContext;
 
-  if (updatedTrip?.flightNumber) {
-    if (!Array.isArray(agents) || agents.length === 0) {
-      agents = ["flight_agent"];
-      console.log(
-        "[Supervisor] No agents from LLM, forcing flight_agent (flightNumber detected)",
-      );
-    } else if (!agents.includes("flight_agent")) {
-      agents = ["flight_agent", ...agents.filter((a) => a !== "flight_agent")];
-      console.log(
-        "[Supervisor] Prepending flight_agent to ensure flights are queried",
-      );
-    }
+  if (!Array.isArray(finalMessages) || finalMessages.length === 0) {
+    console.log(
+      "[invokeGraph] invoke() returned no messages — trying getState()",
+    );
+    const savedState = await compiled.getState(config);
+    finalMessages = savedState?.values?.messages ?? [];
+    finalTripContext = savedState?.values?.tripContext ?? {};
   }
 
-  console.log("[Supervisor] Final routing to:", agents);
+  console.log("[invokeGraph] finalMessages count:", finalMessages?.length);
 
-  // Return partial state update
+  const lastMessage = Array.isArray(finalMessages)
+    ? finalMessages.at(-1)
+    : null;
+
+  console.log(
+    "[invokeGraph] lastMessage type:",
+    lastMessage?.constructor?.name,
+  );
+
+  const reply = lastMessage?.content ?? String(lastMessage ?? "");
+  console.log("[invokeGraph] reply:", reply?.slice(0, 80));
+
   return {
-    nextAgents: agents ?? [],
-    tripContext: updatedTrip,
+    reply,
+    tripContext: finalTripContext ?? {},
   };
-}
-
-// routingFunction: returns first agent or END when finished or empty
-export function routingFunction(state) {
-  const arr = Array.isArray(state.nextAgents) ? state.nextAgents : [];
-  const first = arr.length ? arr[0] : null;
-  if (!first || first === "FINISH") return "END";
-  return first;
-}
-
-// Factory to create agent nodes (eliminates duplication)
-function createAgentNode(agentFactory, resultKey, agentName) {
-  return async (state) => {
-    try {
-      console.log(`[Node] Running: ${agentName}`);
-      const agent = await agentFactory();
-      const latest =
-        Array.isArray(state.messages) && state.messages.length
-          ? state.messages[state.messages.length - 1]
-          : "";
-
-      // Log input and context for debugging
-      const inputText =
-        typeof latest === "string" ? latest : latest?.content || "";
-      if (agentName === "flight_agent") {
-        console.log(`[Node] flight_agent input: ${inputText.slice(0, 100)}`);
-        console.log(`[Node] flight_agent tripContext:`, state.tripContext);
-      }
-
-      const out = await agent.run({
-        input: latest,
-        chat_history: state.messages,
-        tripContext: state.tripContext,
-      });
-      const text = out?.output ?? out;
-      const resultText = String(text);
-
-      if (agentName === "flight_agent") {
-        console.log(`[Node] flight_agent output length: ${resultText.length}`);
-        if (resultText.length > 0) {
-          console.log(
-            `[Node] flight_agent output: ${resultText.slice(0, 200)}`,
-          );
-        }
-      }
-
-      console.log(`[Node] ${agentName} result length: ${resultText.length}`);
-      return {
-        agentResults: {
-          ...(state.agentResults || {}),
-          [resultKey]: resultText,
-        },
-      };
-    } catch (err) {
-      console.error(`[Node] ${agentName} error:`, err?.message ?? err);
-      return {
-        agentResults: {
-          ...(state.agentResults || {}),
-          [resultKey]: String(err?.message ?? err),
-        },
-      };
-    }
-  };
-}
-
-// Agent node creators using the factory
-export const weatherAgentNode = createAgentNode(
-  createWeatherAgent,
-  "weather",
-  "weather_agent",
-);
-export const flightAgentNode = createAgentNode(
-  createFlightAgent,
-  "flight",
-  "flight_agent",
-);
-export const attractionsAgentNode = createAgentNode(
-  createAttractionsAgent,
-  "attractions",
-  "attractions_agent",
-);
-export const restaurantAgentNode = createAgentNode(
-  createRestaurantAgent,
-  "restaurants",
-  "restaurant_agent",
-);
-
-// synthesisNode: merge agentResults into a single assistant reply and append as AIMessage
-export async function synthesisNode(state) {
-  try {
-    const results = state.agentResults || {};
-    const order = ["flight", "weather", "attractions", "restaurants"];
-    const entries = [];
-    for (const k of order) {
-      const v = results[k];
-      if (!v) continue;
-      const sval = String(v);
-      if (!sval.trim()) continue;
-      const lower = sval.trim().toLowerCase();
-      if (lower.startsWith("error") || lower.includes("trace")) continue;
-      entries.push({ key: k, text: sval });
-    }
-
-    // Use centralized systemPrompt from backend/prompts.js for consistent behavior
-    // Instruct the synthesizer to proceed with available info and avoid asking
-    // clarifying questions; note assumptions when needed. Include tripContext
-    // so the assistant can reference extracted details in the final reply.
-    const tripCtx = state.tripContext || {};
-
-    const synthInstructions = `If any minor details (e.g., temperature units) are missing, proceed using sensible defaults and include a short note about assumptions. Do not ask clarifying questions; instead, acknowledge missing info and continue.`;
-
-    let humanContent;
-    if (entries.length === 0) {
-      humanContent = "No agent results available to synthesize.";
-    } else {
-      const parts = entries.map(
-        (e) => `---\n${e.key.toUpperCase()}:\n${e.text}`,
-      );
-      humanContent = `Agent outputs:\n\n${parts.join("\n\n")}`;
-    }
-
-    // Append tripContext and synthesis instructions so the LLM composes a final
-    // answer that uses the extracted context instead of asking for it again.
-    const tripParts = [];
-    if (tripCtx.destination)
-      tripParts.push(`Destination: ${tripCtx.destination}`);
-    if (tripCtx.departDate) tripParts.push(`DepartDate: ${tripCtx.departDate}`);
-    if (tripCtx.returnDate) tripParts.push(`ReturnDate: ${tripCtx.returnDate}`);
-    if (tripCtx.flightNumber)
-      tripParts.push(`FlightNumber: ${tripCtx.flightNumber}`);
-    if (Array.isArray(tripCtx.preferences) && tripCtx.preferences.length)
-      tripParts.push(`Preferences: ${tripCtx.preferences.join(", ")}`);
-
-    if (tripParts.length)
-      humanContent += "\n\nTripContext:\n" + tripParts.join("\n");
-    humanContent += "\n\n" + synthInstructions;
-
-    const apiKey = process.env.GITHUB_TOKEN || process.env.OPENAI_API_KEY;
-    const baseURL =
-      process.env.GITHUB_MODELS_BASE_URL ||
-      "https://models.github.ai/inference";
-    const llm = new ChatOpenAI({
-      model: "gpt-4o-mini",
-      apiKey,
-      configuration: { baseURL },
-    });
-
-    const messages = [
-      new SystemMessage({ content: systemPrompt }),
-      new HumanMessage({ content: humanContent }),
-    ];
-    const aiMsg = await llm.invoke(messages);
-    const aiText = aiMsg?.content ?? String(aiMsg);
-
-    const newAIMessage = new AIMessage({ content: aiText });
-
-    return { messages: [...(state.messages || []), newAIMessage] };
-  } catch (err) {
-    return {
-      agentResults: {
-        ...(state.agentResults || {}),
-        synthesis: String(err?.message ?? err),
-      },
-    };
-  }
 }

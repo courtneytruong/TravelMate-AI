@@ -1,23 +1,15 @@
-import React, { useState } from "react";
+import React, { useEffect } from "react";
 import ChatWindow from "./components/ChatWindow";
 import TripSidebar from "./components/TripSidebar";
+import useChat from "./hooks/useChat";
 import "./App.css";
 
 function App() {
-  const demoMessages = [
-    {
-      id: 1,
-      role: "assistant",
-      content: "Hi — I'm TravelMate. How can I help?",
-    },
-  ];
+  const { messages, isLoading, tripContext, sendMessage, initChat } = useChat();
 
-  const [tripContext, setTripContext] = useState({
-    destination: null,
-    departDate: null,
-    returnDate: null,
-    flightNumber: "",
-  });
+  useEffect(() => {
+    initChat();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#0f1119] via-[#16171d] to-[#0a0d14] p-6">
@@ -46,9 +38,10 @@ function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
           <div className="lg:col-span-2">
             <ChatWindow
-              initialMessages={demoMessages}
+              messages={messages}
+              isLoading={isLoading}
               tripContext={tripContext}
-              setTripContext={setTripContext}
+              sendMessage={sendMessage}
             />
           </div>
           <div>
