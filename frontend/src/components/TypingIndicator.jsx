@@ -4,24 +4,24 @@ export default function TypingIndicator() {
   return (
     <div className="inline-flex items-center space-x-2">
       <span
-        className="w-2.5 h-2.5 bg-[var(--accent)] rounded-full"
+        className="w-2.5 h-2.5 bg-gray-400 rounded-full"
         style={{
           animation: "bounce 1.4s infinite",
-          animationDelay: "0s",
+          animationDelay: "0ms",
         }}
       />
       <span
-        className="w-2.5 h-2.5 bg-[var(--accent)] rounded-full"
+        className="w-2.5 h-2.5 bg-gray-400 rounded-full"
         style={{
           animation: "bounce 1.4s infinite",
-          animationDelay: "0.2s",
+          animationDelay: "150ms",
         }}
       />
       <span
-        className="w-2.5 h-2.5 bg-[var(--accent)] rounded-full"
+        className="w-2.5 h-2.5 bg-gray-400 rounded-full"
         style={{
           animation: "bounce 1.4s infinite",
-          animationDelay: "0.4s",
+          animationDelay: "300ms",
         }}
       />
     </div>

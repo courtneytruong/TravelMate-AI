@@ -227,12 +227,25 @@ export async function extractTripInfo(text) {
 export async function intakeNode(state) {
   const msgs = Array.isArray(state.messages) ? state.messages : [];
   const lastMessage = msgs.at(-1);
+  const lastText = lastMessage?.content ?? "";
 
-  // No AI message yet — first turn, send hardcoded welcome to preserve quota
+  // Detect greeting messages like "hi", "hello", "hey" etc.
+  // These should always trigger the welcome message regardless of
+  // whether there is a prior AI message in history. This ensures that
+  // a page reload (which sends "hi" via initChat) always gets a
+  // friendly welcome rather than the re-prompt fallback.
+  const isGreeting =
+    /^(hi|hello|hey|howdy|sup|greetings|start|begin|help)[\s!?.]*$/i.test(
+      lastText.trim(),
+    );
+
+  // Send welcome when: no AI message yet OR message is a greeting
   const hasAIMessageAlready = msgs.some((m) => m instanceof AIMessage);
 
-  if (!hasAIMessageAlready) {
-    console.log("[intakeNode] No prior AI message — sending hardcoded welcome");
+  if (!hasAIMessageAlready || isGreeting) {
+    console.log(
+      "[intakeNode] Sending welcome message (greeting or first turn)",
+    );
     return {
       messages: [
         new AIMessage({
@@ -244,51 +257,126 @@ export async function intakeNode(state) {
     };
   }
 
-  // AI has already spoken — extract travel info from the latest human message
-  const latestText = lastMessage?.content ?? "";
+  // AI has already spoken and message is not a greeting —
+  // extract travel info from the latest human message
+  const latestText = lastText;
   const extracted = await extractTripInfo(latestText);
   console.log("[intakeNode] Extracted:", extracted);
 
-  if (extracted.flightNumber) {
+  // Merge extracted info with existing tripContext so partial follow-up
+  // answers like "3/19/2026" or "Kahului" are understood in context.
+  // This fixes the bug where the bot asks for a date or destination and
+  // the user answers with just that piece of info.
+  const existingContext = state.tripContext ?? {};
+
+  const mergedContext = {
+    destination: extracted.destination ?? existingContext.destination ?? null,
+    date: extracted.date ?? existingContext.date ?? null,
+    flightNumber:
+      extracted.flightNumber ?? existingContext.flightNumber ?? null,
+  };
+
+  // If extraction found nothing at all, try to infer from context
+  if (!extracted.destination && !extracted.date && !extracted.flightNumber) {
+    // Try parsing the whole message as a standalone date
+    // Handles cases like "3/19/2026" or "March 19th" as follow-up answers
+    if (!mergedContext.date) {
+      try {
+        const parsed = chrono.parseDate(latestText);
+        if (parsed) {
+          mergedContext.date = [
+            parsed.getFullYear(),
+            String(parsed.getMonth() + 1).padStart(2, "0"),
+            String(parsed.getDate()).padStart(2, "0"),
+          ].join("-");
+          console.log(
+            "[intakeNode] Standalone date parsed:",
+            mergedContext.date,
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Try treating the message as a city name if we have no destination yet
+    // and the message looks like a place name (short, letters and spaces only)
+    if (!mergedContext.destination) {
+      const cityGuess = latestText.trim();
+      if (
+        cityGuess.length > 0 &&
+        cityGuess.length < 40 &&
+        /^[A-Za-z\s\-]+$/.test(cityGuess)
+      ) {
+        mergedContext.destination = cityGuess;
+        console.log(
+          "[intakeNode] Treating message as destination:",
+          mergedContext.destination,
+        );
+      }
+    }
+  }
+
+  // Bug fix: if flight lookup previously failed, the user is now providing
+  // a destination manually. Don't re-trigger flight resolution — instead
+  // use their message as the destination and clear the flight number so
+  // the graph routes to lookup instead of resolving again.
+  if (existingContext.flightLookupFailed && mergedContext.flightNumber) {
+    const cityGuess = latestText.trim();
+    if (
+      cityGuess.length > 0 &&
+      cityGuess.length < 40 &&
+      /^[A-Za-z\s\-]+$/.test(cityGuess)
+    ) {
+      mergedContext.destination = cityGuess;
+      mergedContext.flightNumber = null;
+      console.log(
+        "[intakeNode] Flight lookup previously failed — using user input as destination:",
+        mergedContext.destination,
+      );
+    }
+  }
+
+  console.log("[intakeNode] Merged context:", mergedContext);
+
+  if (mergedContext.flightNumber) {
     console.log("[intakeNode] Flight number found — phase -> resolving");
     return {
       messages: [
         new AIMessage({
-          content: `Got it! Let me look up flight **${extracted.flightNumber}** and find travel info for your destination. One moment... ✈️`,
+          content: `Got it! Let me look up flight **${mergedContext.flightNumber}** and find travel info for your destination. One moment... ✈️`,
         }),
       ],
-      tripContext: extracted,
+      tripContext: mergedContext,
       phase: "resolving",
     };
   }
 
-  if (extracted.destination && extracted.date) {
+  if (mergedContext.destination && mergedContext.date) {
     console.log("[intakeNode] Destination + date found — phase -> lookup");
     return {
       messages: [
         new AIMessage({
-          content: `Got it! Let me look up weather, restaurants, and things to do in **${extracted.destination}** for **${extracted.date}**. One moment... 🔍`,
+          content: `Got it! Let me look up weather, restaurants, and things to do in **${mergedContext.destination}** for **${mergedContext.date}**. One moment... 🔍`,
         }),
       ],
-      tripContext: extracted,
+      tripContext: mergedContext,
       phase: "lookup",
     };
   }
 
-  if (extracted.destination && !extracted.date) {
+  if (mergedContext.destination && !mergedContext.date) {
     console.log("[intakeNode] Destination found, no date — asking for date");
     return {
       messages: [
         new AIMessage({
-          content: `Great! What date are you planning to travel to ${extracted.destination}?`,
+          content: `Great! What date are you planning to travel to ${mergedContext.destination}?`,
         }),
       ],
-      tripContext: extracted,
+      tripContext: mergedContext,
       phase: "intake",
     };
   }
 
-  // Nothing useful extracted — hardcoded re-prompt to preserve rate limit quota
+  // Nothing useful extracted even after context merging — re-prompt
   console.log("[intakeNode] Nothing extracted — sending hardcoded re-prompt");
   return {
     messages: [
@@ -459,18 +547,6 @@ export async function lookupNode(state) {
         ),
       ),
     ]);
-  console.log(
-    "[lookupNode] Raw weather result:",
-    JSON.stringify(weatherResult).slice(0, 200),
-  );
-  console.log(
-    "[lookupNode] Raw attractions result:",
-    JSON.stringify(attractionsResult).slice(0, 200),
-  );
-  console.log(
-    "[lookupNode] Raw restaurant result:",
-    JSON.stringify(restaurantResult).slice(0, 200),
-  );
 
   // Extract output strings — use nullish coalescing to avoid [object Object]
   // when value is an object like { output: "" } rather than a plain string.
