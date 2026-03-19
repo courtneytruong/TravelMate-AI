@@ -1,0 +1,96 @@
+import React from "react";
+
+export default function TripContextBar({ tripContext = {} }) {
+  const { destination, departDate, flightNumber } = tripContext;
+
+  // Format departDate if it exists
+  const formattedDate = departDate
+    ? new Date(departDate).toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+      })
+    : null;
+
+  // Return null if all fields are empty
+  if (!destination && !flightNumber && !departDate) {
+    return null;
+  }
+
+  return (
+    <div
+      className="w-full py-2 px-4 border-b"
+      style={{
+        backgroundColor: "var(--bg)",
+        borderColor: "var(--border)",
+      }}
+    >
+      <div className="flex items-center justify-start gap-6">
+        {/* Flight Section */}
+        <div className="flex items-center gap-2">
+          <span
+            style={{ color: "var(--text-h)" }}
+            className="text-sm font-medium"
+          >
+            Flight:
+          </span>
+          <span
+            style={{ color: "var(--text)", opacity: 0.7 }}
+            className="text-sm"
+          >
+            {flightNumber || "—"}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div
+          className="h-4 w-px"
+          style={{
+            backgroundColor: "var(--border)",
+          }}
+        />
+
+        {/* Destination Section */}
+        <div className="flex items-center gap-2">
+          <span
+            style={{ color: "var(--text-h)" }}
+            className="text-sm font-medium"
+          >
+            Destination:
+          </span>
+          <span
+            style={{ color: "var(--text)", opacity: 0.7 }}
+            className="text-sm"
+          >
+            {destination || "—"}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div
+          className="h-4 w-px"
+          style={{
+            backgroundColor: "var(--border)",
+          }}
+        />
+
+        {/* Date Section */}
+        <div className="flex items-center gap-2">
+          <span
+            style={{ color: "var(--text-h)" }}
+            className="text-sm font-medium"
+          >
+            Date:
+          </span>
+          <span
+            style={{ color: "var(--text)", opacity: 0.7 }}
+            className="text-sm"
+          >
+            {formattedDate || "—"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
