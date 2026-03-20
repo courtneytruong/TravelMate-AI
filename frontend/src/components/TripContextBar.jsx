@@ -86,7 +86,7 @@ export default function TripContextBar({ tripContext = {} }) {
             style={{ color: "var(--text-h)" }}
             className="text-sm font-medium"
           >
-            Date:
+            Travel Date:
           </span>
           <span
             style={{ color: "var(--text)", opacity: 0.7 }}
