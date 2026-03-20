@@ -269,9 +269,14 @@ export async function intakeNode(state) {
   // the user answers with just that piece of info.
   const existingContext = state.tripContext ?? {};
 
+  // BUG FIX: Once we have an established trip date, don't overwrite it with
+  // dates extracted from follow-up messages. The extractTripInfo function uses
+  // chrono.parseDate which matches any date reference (including "today"),
+  // causing user follow-up messages to overwrite the actual travel date.
+  // Only use extracted.date if we don't already have a trip date.
   const mergedContext = {
     destination: extracted.destination ?? existingContext.destination ?? null,
-    date: extracted.date ?? existingContext.date ?? null,
+    date: existingContext.date ?? extracted.date ?? null,
     flightNumber:
       extracted.flightNumber ?? existingContext.flightNumber ?? null,
   };

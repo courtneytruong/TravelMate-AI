@@ -4,13 +4,18 @@ export default function TripContextBar({ tripContext = {} }) {
   const { destination, departDate, flightNumber } = tripContext;
 
   // Format departDate if it exists
+  // Parse YYYY-MM-DD format manually to avoid timezone issues
+  // (new Date("YYYY-MM-DD") interprets as UTC, causing off-by-one in other timezones)
   const formattedDate = departDate
-    ? new Date(departDate).toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "2-digit",
-        year: "numeric",
-      })
+    ? (() => {
+        const [year, month, day] = departDate.split("-");
+        return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        });
+      })()
     : null;
 
   // Return null if all fields are empty
