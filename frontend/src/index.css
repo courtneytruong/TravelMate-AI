@@ -130,6 +130,15 @@
   }
 }
 
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
 /* Enhanced card styles with shadows */
 .card {
   background: var(--bg);
