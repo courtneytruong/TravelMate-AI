@@ -30,10 +30,15 @@ server.tool(
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Tool temporarily unavailable: ${err.message}` }],
+        content: [
+          {
+            type: "text",
+            text: `Tool temporarily unavailable: ${err.message}`,
+          },
+        ],
       };
     }
-  }
+  },
 );
 
 // Register Tool 2: get_attractions
@@ -52,10 +57,15 @@ server.tool(
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Tool temporarily unavailable: ${err.message}` }],
+        content: [
+          {
+            type: "text",
+            text: `Tool temporarily unavailable: ${err.message}`,
+          },
+        ],
       };
     }
-  }
+  },
 );
 
 // Register Tool 3: get_restaurants
@@ -74,10 +84,15 @@ server.tool(
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Tool temporarily unavailable: ${err.message}` }],
+        content: [
+          {
+            type: "text",
+            text: `Tool temporarily unavailable: ${err.message}`,
+          },
+        ],
       };
     }
-  }
+  },
 );
 
 // Register Tool 4: get_flight_status
@@ -96,10 +111,15 @@ server.tool(
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Tool temporarily unavailable: ${err.message}` }],
+        content: [
+          {
+            type: "text",
+            text: `Tool temporarily unavailable: ${err.message}`,
+          },
+        ],
       };
     }
-  }
+  },
 );
 
 // Create Express app
