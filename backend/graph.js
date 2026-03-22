@@ -17,10 +17,8 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 import * as chrono from "chrono-node";
-import createWeatherAgent from "./agents/weatherAgent.js";
-import createAttractionsAgent from "./agents/attractionsAgent.js";
-import createRestaurantAgent from "./agents/restaurantAgent.js";
-import createFlightAgent from "./agents/flightAgent.js";
+import { runResearch } from "./agents/researchAgent.js";
+import { runTranslate } from "./agents/translateAgent.js";
 import { setMaxListeners } from "events";
 
 // Increase max listeners to suppress EventTarget memory leak warning
@@ -139,6 +137,9 @@ export const GraphState = Annotation.Root({
       restaurantData: null,
       flightLookupFailed: false,
       lookupComplete: false,
+      researchOutput: null,
+      toolsUsed: [],
+      normalizedData: null,
     }),
   }),
 
@@ -425,17 +426,21 @@ export async function resolveNode(state) {
   }
 
   try {
-    const flightAgent = await createFlightAgent();
-    console.log("[resolveNode] Invoking flight agent with:", flightNumber);
-
-    const flightResult = await callWithRetry(() =>
-      flightAgent.invoke({ input: flightNumber }),
+    console.log(
+      "[resolveNode] Invoking flight research via MCP for:",
+      flightNumber,
     );
 
-    const flightOutput = flightResult?.output || String(flightResult || "");
+    const result = await runResearch({
+      destination: null,
+      date: state.tripContext?.date ?? null,
+      flightNumber,
+    });
+
+    const flightOutput = result.output || "";
     const flightStatus = flightOutput;
 
-    // Attempt to extract destination city from the flight agent's response
+    // Attempt to extract destination city from the research output
     let resolvedDestination = null;
     const destMatch = flightOutput.match(
       /(?:to|destination|arriving at|going to)\s+([A-Z][a-zA-Z\s]+?)(?:\.|,|$)/i,
@@ -475,7 +480,7 @@ export async function resolveNode(state) {
       };
     }
   } catch (err) {
-    console.error("[resolveNode] Flight agent error:", err?.message);
+    console.error("[resolveNode] Flight research error:", err?.message);
     return {
       messages: [
         new AIMessage({
@@ -490,25 +495,25 @@ export async function resolveNode(state) {
 }
 
 // ============================================================================
-// LOOKUP NODE
-// Runs weather, attractions, and restaurant agents in parallel.
-// Uses Promise.allSettled so one failure doesn't block the others.
+// RESEARCH NODE
+// Calls the ResearchAgent to gather travel information via MCP tools.
 // ============================================================================
 
 /**
- * Lookup node: fetches weather, attractions, and restaurant data in parallel.
+ * Research node: calls the ResearchAgent to look up travel info via MCP.
  * @param {object} state - Current graph state
  * @returns {Promise<object>} Partial state update
  */
-export async function lookupNode(state) {
+export async function researchNode(state) {
   const destination =
     state.tripContext?.resolvedDestination || state.tripContext?.destination;
   const date = state.tripContext?.date;
+  const flightNumber = state.tripContext?.flightNumber;
 
-  console.log("[lookupNode] Destination:", destination, "Date:", date);
+  console.log("[researchNode] Starting research for:", destination);
 
   if (!destination) {
-    console.log("[lookupNode] No destination — returning to intake");
+    console.log("[researchNode] No destination — returning to intake");
     return {
       messages: [
         new AIMessage({
@@ -520,85 +525,58 @@ export async function lookupNode(state) {
     };
   }
 
-  // Stagger agent calls by 1.5s each to avoid simultaneous GitHub Models
-  // rate limit hits. Weather fires immediately, attractions after 1.5s,
-  // restaurants after 3s. callWithRetry handles any remaining rate limits.
-  const staggerDelay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const result = await runResearch({ destination, date, flightNumber });
 
-  console.log(
-    "[lookupNode] Firing agents with staggered delays (0s / 1.5s / 3s)",
-  );
+  if (!result.output || result.error) {
+    console.error("[researchNode] Research failed:", result.error);
+    return {
+      tripContext: { researchOutput: "", toolsUsed: [] },
+      phase: "translate",
+    };
+  }
 
-  const [weatherResult, attractionsResult, restaurantResult] =
-    await Promise.allSettled([
-      // Weather fires immediately
-      createWeatherAgent().then((agent) =>
-        callWithRetry(() =>
-          agent.invoke({
-            input: date ? `${destination} on ${date}` : destination,
-          }),
-        ),
-      ),
-      // Attractions fires after 1.5s
-      staggerDelay(1500).then(() =>
-        createAttractionsAgent().then((agent) =>
-          callWithRetry(() => agent.invoke({ input: destination })),
-        ),
-      ),
-      // Restaurants fires after 3s
-      staggerDelay(3000).then(() =>
-        createRestaurantAgent().then((agent) =>
-          callWithRetry(() => agent.invoke({ input: destination })),
-        ),
-      ),
-    ]);
-
-  // Extract output strings — use nullish coalescing to avoid [object Object]
-  // when value is an object like { output: "" } rather than a plain string.
-  const weatherData =
-    weatherResult.status === "fulfilled"
-      ? String(weatherResult.value?.output ?? weatherResult.value ?? "")
-      : "Weather data temporarily unavailable";
-
-  const attractionsData =
-    attractionsResult.status === "fulfilled"
-      ? String(attractionsResult.value?.output ?? attractionsResult.value ?? "")
-      : "Attractions data temporarily unavailable";
-
-  const restaurantData =
-    restaurantResult.status === "fulfilled"
-      ? String(restaurantResult.value?.output ?? restaurantResult.value ?? "")
-      : "Restaurant data temporarily unavailable";
-
-  if (weatherResult.status === "rejected")
-    console.error(
-      "[lookupNode] Weather failed:",
-      weatherResult.reason?.message,
-    );
-  if (attractionsResult.status === "rejected")
-    console.error(
-      "[lookupNode] Attractions failed:",
-      attractionsResult.reason?.message,
-    );
-  if (restaurantResult.status === "rejected")
-    console.error(
-      "[lookupNode] Restaurants failed:",
-      restaurantResult.reason?.message,
-    );
-
-  console.log("[lookupNode] Weather length:", weatherData.length);
-  console.log("[lookupNode] Attractions length:", attractionsData.length);
-  console.log("[lookupNode] Restaurants length:", restaurantData.length);
-  console.log("[lookupNode] All lookups complete -> synthesis");
+  console.log("[researchNode] Tools used:", result.toolsUsed);
+  console.log("[researchNode] Output length:", result.output.length);
 
   return {
     tripContext: {
-      weatherData,
-      attractionsData,
-      restaurantData,
-      lookupComplete: true,
+      researchOutput: result.output,
+      toolsUsed: result.toolsUsed,
     },
-    phase: "synthesis",
+    phase: "translate",
+  };
+}
+
+// ============================================================================
+// TRANSLATE NODE
+// Calls the TranslateAgent to normalize raw research output to JSON.
+// ============================================================================
+
+/**
+ * Translate node: normalizes raw research output to structured JSON.
+ * @param {object} state - Current graph state
+ * @returns {Promise<object>} Partial state update
+ */
+export async function translateNode(state) {
+  const rawResearch = state.tripContext?.researchOutput ?? "";
+
+  console.log("[translateNode] Starting normalization...");
+
+  if (!rawResearch) {
+    console.log("[translateNode] No research output to translate");
+    return {
+      tripContext: { normalizedData: {} },
+      phase: "response",
+    };
+  }
+
+  const normalized = await runTranslate(rawResearch);
+
+  console.log("[translateNode] Normalized sections:", Object.keys(normalized));
+
+  return {
+    tripContext: { normalizedData: normalized },
+    phase: "response",
   };
 }
 
@@ -618,28 +596,23 @@ export async function lookupNode(state) {
  * @returns {Promise<object>} Partial state update with final AI response
  */
 export async function synthesisNode(state) {
-  const { weatherData, attractionsData, restaurantData, flightStatus } =
-    state.tripContext ?? {};
+  const { flightStatus } = state.tripContext ?? {};
   const destination =
     state.tripContext?.resolvedDestination || state.tripContext?.destination;
   const flightNumber = state.tripContext?.flightNumber;
 
   console.log("[synthesisNode] Building final response for:", destination);
 
-  // Collect non-empty, non-fallback data sources
+  // Get normalized data from translateNode
+  const normalized = state.tripContext?.normalizedData ?? {};
+  const { weather, attractions, restaurants, flight: flightData } = normalized;
+
+  // Collect non-empty data sources from normalized data
   const dataSources = [];
-  if (flightStatus && !flightStatus.includes("temporarily unavailable")) {
-    dataSources.push({ type: "flight", data: flightStatus });
-  }
-  if (weatherData && !weatherData.includes("temporarily unavailable")) {
-    dataSources.push({ type: "weather", data: weatherData });
-  }
-  if (restaurantData && !restaurantData.includes("temporarily unavailable")) {
-    dataSources.push({ type: "restaurant", data: restaurantData });
-  }
-  if (attractionsData && !attractionsData.includes("temporarily unavailable")) {
-    dataSources.push({ type: "attractions", data: attractionsData });
-  }
+  if (flightData) dataSources.push({ type: "flight", data: flightData });
+  if (weather) dataSources.push({ type: "weather", data: weather });
+  if (restaurants) dataSources.push({ type: "restaurant", data: restaurants });
+  if (attractions) dataSources.push({ type: "attractions", data: attractions });
 
   console.log("[synthesisNode] Valid data sources:", dataSources.length);
 
@@ -662,7 +635,7 @@ export async function synthesisNode(state) {
     console.log("[synthesisNode] Single source — formatting directly");
     const s = dataSources[0];
     finalResponse =
-      `${headerMap[s.type]}\n${s.data}` +
+      `${headerMap[s.type]}\n${JSON.stringify(s.data, null, 2)}` +
       "\n\n💬 Feel free to ask me any follow-up questions about your trip!";
   } else {
     // Multiple sources — use LLM to produce a coherent synthesized response.
@@ -670,7 +643,10 @@ export async function synthesisNode(state) {
     console.log("[synthesisNode] Multiple sources — calling LLM to synthesize");
 
     const dataBlocks = dataSources
-      .map((s) => `[${headerMap[s.type].toUpperCase()}]\n${s.data}`)
+      .map(
+        (s) =>
+          `[${headerMap[s.type].toUpperCase()}]\n${JSON.stringify(s.data, null, 2)}`,
+      )
       .join("\n\n");
 
     try {
@@ -707,7 +683,11 @@ Do not add any sections not listed above.`,
         err?.message,
       );
       finalResponse =
-        dataSources.map((s) => `${headerMap[s.type]}\n${s.data}`).join("\n\n") +
+        dataSources
+          .map(
+            (s) => `${headerMap[s.type]}\n${JSON.stringify(s.data, null, 2)}`,
+          )
+          .join("\n\n") +
         "\n\n💬 Feel free to ask me any follow-up questions about your trip!";
     }
   }
@@ -718,6 +698,48 @@ Do not add any sections not listed above.`,
     messages: [new AIMessage({ content: finalResponse })],
     phase: "followup",
   };
+}
+
+// ============================================================================
+// RESEARCH ROUTER
+// Routes after researchNode based on whether research succeeded.
+// ============================================================================
+
+/**
+ * @param {object} state - Current graph state
+ * @returns {string} "translate_node" or "__end__"
+ */
+function researchRouter(state) {
+  const hasOutput = !!state.tripContext?.researchOutput;
+  console.log("[researchRouter] hasOutput:", hasOutput);
+  if (hasOutput) {
+    console.log("[researchRouter] -> translate_node");
+    return "translate_node";
+  }
+  console.log("[researchRouter] -> __end__");
+  return "__end__";
+}
+
+// ============================================================================
+// TRANSLATE ROUTER
+// Routes after translateNode based on whether normalization succeeded.
+// ============================================================================
+
+/**
+ * @param {object} state - Current graph state
+ * @returns {string} "synthesis_node" or "__end__"
+ */
+function translateRouter(state) {
+  const hasData =
+    state.tripContext?.normalizedData &&
+    Object.keys(state.tripContext.normalizedData).length > 0;
+  console.log("[translateRouter] hasData:", hasData);
+  if (hasData) {
+    console.log("[translateRouter] -> synthesis_node");
+    return "synthesis_node";
+  }
+  console.log("[translateRouter] -> __end__");
+  return "__end__";
 }
 
 // ============================================================================
@@ -736,28 +758,8 @@ function resolveRouter(state) {
     console.log("[resolveRouter] -> __end__ (user must re-enter destination)");
     return "__end__";
   }
-  console.log("[resolveRouter] -> lookup_node");
-  return "lookup_node";
-}
-
-// ============================================================================
-// LOOKUP ROUTER
-// Routes after lookupNode based on whether all lookups completed.
-// ============================================================================
-
-/**
- * @param {object} state - Current graph state
- * @returns {string} "synthesis_node" or "__end__"
- */
-function lookupRouter(state) {
-  const complete = state.tripContext?.lookupComplete ?? false;
-  console.log("[lookupRouter] lookupComplete:", complete);
-  if (complete) {
-    console.log("[lookupRouter] -> synthesis_node");
-    return "synthesis_node";
-  }
-  console.log("[lookupRouter] -> __end__");
-  return "__end__";
+  console.log("[resolveRouter] -> research_node");
+  return "research_node";
 }
 
 // ============================================================================
@@ -778,8 +780,8 @@ function intakeRouter(state) {
     return "resolve_node";
   }
   if (phase === "lookup") {
-    console.log("[intakeRouter] -> lookup_node");
-    return "lookup_node";
+    console.log("[intakeRouter] -> research_node");
+    return "research_node";
   }
   return "__end__";
 }
@@ -809,7 +811,8 @@ export async function compileGraph() {
     // ── Nodes ──────────────────────────────────────────────────────────────
     sg.addNode("intake_node", intakeNode);
     sg.addNode("resolve_node", resolveNode);
-    sg.addNode("lookup_node", lookupNode);
+    sg.addNode("research_node", researchNode);
+    sg.addNode("translate_node", translateNode);
     sg.addNode("synthesis_node", synthesisNode);
 
     // ── Entry point ────────────────────────────────────────────────────────
@@ -818,18 +821,24 @@ export async function compileGraph() {
     // ── Intake routing ─────────────────────────────────────────────────────
     sg.addConditionalEdges("intake_node", intakeRouter, {
       resolve_node: "resolve_node",
-      lookup_node: "lookup_node",
+      research_node: "research_node",
       __end__: END,
     });
 
     // ── Resolve routing ────────────────────────────────────────────────────
     sg.addConditionalEdges("resolve_node", resolveRouter, {
-      lookup_node: "lookup_node",
+      research_node: "research_node",
       __end__: END,
     });
 
-    // ── Lookup routing ─────────────────────────────────────────────────────
-    sg.addConditionalEdges("lookup_node", lookupRouter, {
+    // ── Research routing ───────────────────────────────────────────────────
+    sg.addConditionalEdges("research_node", researchRouter, {
+      translate_node: "translate_node",
+      __end__: END,
+    });
+
+    // ── Translate routing ──────────────────────────────────────────────────
+    sg.addConditionalEdges("translate_node", translateRouter, {
       synthesis_node: "synthesis_node",
       __end__: END,
     });
