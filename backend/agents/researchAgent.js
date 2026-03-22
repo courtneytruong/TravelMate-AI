@@ -1,3 +1,4 @@
+// backend/agents/researchAgent.js
 import "dotenv/config";
 import { MultiServerMCPClient } from "@langchain/mcp-adapters";
 import { ChatOpenAI } from "@langchain/openai";
@@ -62,18 +63,48 @@ async function createResearchAgent() {
 
 export async function runResearch(tripContext) {
   try {
-    const { destination, date, flightNumber } = tripContext;
+    const { destination, date, flightNumber, intent = [] } = tripContext;
 
     console.log(`[researchAgent] Starting research for: ${destination}`);
+    console.log(`[researchAgent] Intent:`, intent);
 
-    // Build dynamic prompt — LLM decides which tools to call
-    let prompt = `Research travel information for ${destination}`;
+    // Determine which tools to call based on detected intent.
+    // "flight" intent means ONLY flight — do not add weather/restaurants/attractions.
+    // "all" (empty intent) means all three non-flight sources.
+    const flightOnly =
+      intent.includes("flight") &&
+      !intent.includes("weather") &&
+      !intent.includes("attractions") &&
+      !intent.includes("restaurants");
+
+    const lookupAll = intent.length === 0;
+    const lookupWeather =
+      !flightOnly && (lookupAll || intent.includes("weather"));
+    const lookupAttractions =
+      !flightOnly && (lookupAll || intent.includes("attractions"));
+    const lookupRestaurants =
+      !flightOnly && (lookupAll || intent.includes("restaurants"));
+    const lookupFlight = !!flightNumber || intent.includes("flight");
+
+    console.log(
+      `[researchAgent] Tool flags — weather:${lookupWeather} attractions:${lookupAttractions} restaurants:${lookupRestaurants} flight:${lookupFlight}`,
+    );
+
+    // Build focused prompt so the LLM only calls relevant tools
+    let prompt = destination
+      ? `Research travel information for ${destination}`
+      : `Look up travel information`;
     if (date) prompt += ` on ${date}`;
-    prompt += `. Use available tools to look up: current weather forecast, top tourist attractions, and top restaurants.`;
-    if (flightNumber) {
-      prompt += ` Also look up the status of flight ${flightNumber}.`;
-    }
-    prompt += ` Call only the tools that are relevant to this request. Return all raw results from each tool you called — do not summarize or format the output.`;
+    prompt += `. Use the available MCP tools to look up ONLY the following:`;
+    if (lookupWeather)
+      prompt += `\n- Current weather forecast (use get_weather)`;
+    if (lookupAttractions)
+      prompt += `\n- Top tourist attractions (use get_attractions)`;
+    if (lookupRestaurants)
+      prompt += `\n- Top restaurants (use get_restaurants)`;
+    if (lookupFlight)
+      prompt += `\n- Flight status for ${flightNumber} — include whether there are any delays (use get_flight_status)`;
+    prompt += `\n\nCRITICAL: Do NOT call any tools not listed above. You must call ONLY the tools specified. Return raw results from each tool without summarizing.`;
 
     const { agent, tools } = await createResearchAgent();
 
