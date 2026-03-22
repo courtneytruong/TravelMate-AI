@@ -1,0 +1,16 @@
+{
+  "name": "travelmate-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest",
+    "express": "latest",
+    "zod": "latest",
+    "dotenv": "latest"
+  }
+}
