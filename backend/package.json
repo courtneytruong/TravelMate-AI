@@ -13,6 +13,7 @@
   "dependencies": {
     "@langchain/core": "*",
     "@langchain/langgraph": "^1.2.2",
+    "@langchain/mcp-adapters": "^1.1.3",
     "@langchain/openai": "*",
     "axios": "*",
     "chrono-node": "^2.9.0",
