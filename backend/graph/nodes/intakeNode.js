@@ -107,22 +107,33 @@ export async function intakeNode(state) {
       /\b(restaurant|restaurants|food|dining|cuisine|lunch|dinner|breakfast|cafe|where to eat)\b/i,
     attractions:
       /\b(attraction|attractions|things to do|sightseeing|visit|landmark|museum|tour|sight|activity|activities)\b/i,
+    travelGuide:
+      /\b(visa|entry requirements|passport|customs|etiquette|culture|cultural|tradition|tip|tips|advice|neighborhood|neighbourhoods|district|area|transport|getting around|packing|what to pack|what to bring|best time|when to visit|season|safety|currency|language|tipping|sim card|wifi|what should i know|before i visit|before visiting|local customs|dress code|electric|plug|adapter)\b/i,
   };
 
   const detectedIntents = Object.entries(intentKeywords)
     .filter(([, regex]) => regex.test(latestText))
     .map(([i]) => i);
 
+  // if travelGuide detected alongside destination+date,
+  // also include live data tools for a complete response
   let intent;
   if (detectedIntents.length > 0) {
     intent = detectedIntents;
-  } else if (existingContext.flightStatusOnly) {
-    intent = ["flight"];
-    console.log("[intakeNode] Preserving flight-only intent");
+    // If user provided destination + date AND asked what to know,
+    // also pull live weather/restaurants/attractions
+    if (
+      detectedIntents.includes("travelGuide") &&
+      mergedContext.destination &&
+      mergedContext.date
+    ) {
+      if (!intent.includes("weather")) intent.push("weather");
+      if (!intent.includes("restaurants")) intent.push("restaurants");
+      if (!intent.includes("attractions")) intent.push("attractions");
+    }
   } else {
     intent = ["weather", "restaurants", "attractions"];
   }
-
   console.log("[intakeNode] Detected intent:", intent);
   console.log("[intakeNode] Merged context:", mergedContext);
 

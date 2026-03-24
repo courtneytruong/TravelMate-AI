@@ -85,9 +85,11 @@ export async function runResearch(tripContext) {
     const lookupRestaurants =
       !flightOnly && (lookupAll || intent.includes("restaurants"));
     const lookupFlight = !!flightNumber || intent.includes("flight");
+    const lookupTravelGuide =
+      intent.includes("travelGuide") || intent.includes("travelguide");
 
     console.log(
-      `[researchAgent] Tool flags — weather:${lookupWeather} attractions:${lookupAttractions} restaurants:${lookupRestaurants} flight:${lookupFlight}`,
+      `[researchAgent] Tool flags — weather:${lookupWeather} attractions:${lookupAttractions} restaurants:${lookupRestaurants} flight:${lookupFlight} travelGuide:${lookupTravelGuide}`,
     );
 
     // Build focused prompt so the LLM only calls relevant tools
@@ -104,6 +106,9 @@ export async function runResearch(tripContext) {
       prompt += `\n- Top restaurants (use get_restaurants)`;
     if (lookupFlight)
       prompt += `\n- Flight status for ${flightNumber} — include whether there are any delays (use get_flight_status)`;
+    if (lookupTravelGuide) {
+      prompt += `\n- Practical travel guide information for ${destination} (use get_travel_guide with destination="${destination}" and query matching what the user asked)`;
+    }
     prompt += `\n\nCRITICAL: Do NOT call any tools not listed above. You must call ONLY the tools specified. Return raw results from each tool without summarizing.`;
 
     const { agent, tools } = await createResearchAgent();

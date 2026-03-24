@@ -11,6 +11,7 @@ import weatherTool from "../tools/weatherTool.js";
 import attractionsTool from "../tools/attractionsTool.js";
 import restaurantTool from "../tools/restaurantTool.js";
 import flightTool from "../tools/flightTool.js";
+import ragTool from "../tools/ragTool.js";
 
 // ============================================================================
 // MCP SERVER INSTANCE
@@ -109,6 +110,30 @@ server.tool(
   },
 );
 
+server.tool(
+  "get_travel_guide",
+  "Search curated travel guides for destination-specific tips covering visa requirements, cultural etiquette, seasonal advice, neighborhood guides, transportation tips, packing suggestions, currency, language, safety, and tipping customs. Use this when the user asks about practical travel advice, what to know before visiting, cultural tips, visa info, best time to visit, what to pack, or how to get around.",
+  {
+    destination: z.string().describe("The destination city"),
+    query: z.string().describe("The specific topic to search for"),
+  },
+  async ({ destination, query }) => {
+    try {
+      const result = await ragTool.func({ destination, query });
+      return { content: [{ type: "text", text: String(result) }] };
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Travel guide temporarily unavailable: ${err.message}`,
+          },
+        ],
+      };
+    }
+  },
+);
+
 // ============================================================================
 // STDIO TRANSPORT
 // StdioServerTransport communicates via stdin/stdout — no HTTP server needed.
@@ -122,5 +147,5 @@ await server.connect(transport);
 // Log to stderr only — stdout is reserved for MCP protocol messages
 console.error("[mcp-server] TravelMate MCP server started (stdio transport)");
 console.error(
-  "[mcp-server] Exposed tools: get_weather, get_attractions, get_restaurants, get_flight_status",
+  "[mcp-server] Exposed tools: get_weather, get_attractions, get_restaurants, get_flight_status, get_travel_guide",
 );
