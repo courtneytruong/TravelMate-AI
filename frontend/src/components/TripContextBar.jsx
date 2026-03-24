@@ -27,8 +27,7 @@ export default function TripContextBar({ tripContext = {} }) {
     <div
       className="w-full py-2 px-4 border-b rounded-tl-xl rounded-tr-xl mb-1"
       style={{
-        background:
-          "linear-gradient(135deg, var(--code-bg), rgba(31, 32, 40, 0.8))",
+        backgroundColor: "rgba(170, 59, 255, 0.15)",
         borderColor: "var(--border)",
       }}
     >
@@ -53,7 +52,7 @@ export default function TripContextBar({ tripContext = {} }) {
         <div
           className="h-4 w-px"
           style={{
-            backgroundColor: "var(--border)",
+            backgroundColor: "var(--text-h)",
           }}
         />
 
@@ -77,7 +76,7 @@ export default function TripContextBar({ tripContext = {} }) {
         <div
           className="h-4 w-px"
           style={{
-            backgroundColor: "var(--border)",
+            backgroundColor: "var(--text-h)",
           }}
         />
 
