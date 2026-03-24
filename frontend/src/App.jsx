@@ -113,9 +113,6 @@ function App() {
             </p>
           </div>
 
-          {/* Trip Context Bar */}
-          <TripContextBar tripContext={tripContext} />
-
           {/* Chat Window */}
           <ChatWindow
             messages={messages}

@@ -27,11 +27,11 @@ export default function TripContextBar({ tripContext = {} }) {
     <div
       className="w-full py-2 px-4 border-b"
       style={{
-        backgroundColor: "var(--bg)",
+        background: "linear-gradient(135deg, var(--code-bg), rgba(31, 32, 40, 0.8))",
         borderColor: "var(--border)",
       }}
     >
-      <div className="flex items-center justify-start gap-6">
+      <div className="flex items-center justify-center gap-6">
         {/* Flight Section */}
         <div className="flex items-center gap-2">
           <span

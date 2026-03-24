@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import TypingIndicator from "./TypingIndicator";
 import ChatTimeStamp from "./ChatTimeStamp";
+import TripContextBar from "./TripContextBar";
 
 export default function ChatWindow({
   messages = [],
@@ -32,19 +33,7 @@ export default function ChatWindow({
 
   return (
     <div className="flex flex-col card h-[650px]">
-      <div className="chat-header">
-        <div>Conversation</div>
-        <div className="text-sm muted text-right" style={{ fontWeight: 500 }}>
-          {tripContext?.destination && (
-            <span
-              className="bg-[var(--accent-bg)] px-3 py-1 rounded-full inline-block"
-              style={{ color: "var(--accent)" }}
-            >
-              {tripContext.destination}
-            </span>
-          )}
-        </div>
-      </div>
+      <TripContextBar tripContext={tripContext} />
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[var(--bg)]">
         {messages.map((m) => {
           const common =
