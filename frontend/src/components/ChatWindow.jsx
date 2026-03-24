@@ -37,7 +37,7 @@ export default function ChatWindow({
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[var(--bg)]">
         {messages.map((m) => {
           const common =
-            "px-5 py-3 rounded-xl max-w-[85%] shadow-lg break-words";
+            "px-5 py-3 rounded-xl max-w-full shadow-lg break-words";
           if (m.role === "user") {
             return (
               <div key={m.id}>
