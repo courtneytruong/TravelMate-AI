@@ -51,9 +51,9 @@ export default function ChatWindow({
             "px-5 py-3 rounded-xl max-w-[85%] shadow-lg break-words";
           if (m.role === "user") {
             return (
-              <div key={m.id} className="flex justify-end">
-                <div>
-                  <ChatTimeStamp timestamp={m.timestamp} align="right" />
+              <div key={m.id}>
+                <ChatTimeStamp timestamp={m.timestamp} />
+                <div className="flex justify-end">
                   <div className={`${common} message-user`}>
                     {typeof m.content === "object" ? (
                       <pre className="whitespace-pre-wrap text-sm font-mono">
@@ -69,9 +69,9 @@ export default function ChatWindow({
           }
           if (m.role === "assistant") {
             return (
-              <div key={m.id} className="flex justify-start">
-                <div>
-                  <ChatTimeStamp timestamp={m.timestamp} align="left" />
+              <div key={m.id}>
+                <ChatTimeStamp timestamp={m.timestamp} />
+                <div className="flex justify-start">
                   <div className={`${common} message-assistant`}>
                     {typeof m.content === "object" ? (
                       <pre className="whitespace-pre-wrap text-sm font-mono">
@@ -88,9 +88,9 @@ export default function ChatWindow({
             );
           }
           return (
-            <div key={m.id} className="flex justify-start">
-              <div>
-                <ChatTimeStamp timestamp={m.timestamp} align="left" />
+            <div key={m.id}>
+              <ChatTimeStamp timestamp={m.timestamp} />
+              <div className="flex justify-start">
                 <div
                   className={`${common} bg-red-900 bg-opacity-30 text-red-200 border border-red-700`}
                 >

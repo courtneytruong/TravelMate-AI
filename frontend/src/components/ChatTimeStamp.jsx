@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function ChatTimeStamp({ timestamp, align = "left" }) {
+export default function ChatTimeStamp({ timestamp }) {
   if (!timestamp) return null;
 
   const formatTime = (time) => {
@@ -36,11 +36,9 @@ export default function ChatTimeStamp({ timestamp, align = "left" }) {
     }
   };
 
-  const alignClass = align === "right" ? "text-right" : "text-left";
-
   return (
     <div
-      className={`text-xs muted mb-1 ${alignClass}`}
+      className="text-xs muted mb-1 text-center w-full"
       style={{ opacity: 0.6 }}
     >
       {formatTime(timestamp)}
