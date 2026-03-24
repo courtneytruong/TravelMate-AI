@@ -16,12 +16,19 @@ async function createTranslateAgent() {
 
 Follow these rules strictly:
 1. Match the exact output JSON shape provided below
-2. Omit any top-level section (flight, weather, attractions, restaurants) that has no data
+2. Omit any top-level section (flight, weather, attractions, restaurants, travelGuide) that has no data
 3. Clean address formatting — remove zip codes, keep only readable address parts
 4. Normalize temperature to always include °F (e.g., "52°F")
 5. Normalize forecast entries to "Day TempF conditions" format (e.g., "Sat 52°F cloudy")
 6. For flight data: extract number, status, departure, arrival, destination if present
-7. Return ONLY valid JSON — no markdown, no backticks, no explanation text
+7. For travel guide chunks (text starting with [City — Section] headers): extract into travelGuide section
+8. Return ONLY valid JSON — no markdown, no backticks, no explanation text
+
+Travel Guide Extraction Rules:
+- If raw research contains text with [City — Section] headers, extract them into "travelGuide"
+- Group content by section title. If multiple chunks share the same section title, combine their content
+- Include only sections with meaningful content (more than 50 characters)
+- Format as shown in the example below
 
 Valid JSON shape (omit any section with no data):
 {
@@ -55,7 +62,24 @@ Valid JSON shape (omit any section with no data):
       "cuisine": "Pub",
       "address": "Shinjuku 3-38-1"
     }
-  ]
+  ],
+  "travelGuide": {
+    "destination": "Tokyo",
+    "sections": [
+      {
+        "title": "Visa and Entry Requirements",
+        "content": "Most visitors from the US, UK, Canada..."
+      },
+      {
+        "title": "Cultural Tips",
+        "content": "Japan has a deeply rooted culture..."
+      },
+      {
+        "title": "Transportation",
+        "content": "Tokyo has one of the world's most efficient..."
+      }
+    ]
+  }
 }
 
 Return ONLY the JSON object, nothing else.`;

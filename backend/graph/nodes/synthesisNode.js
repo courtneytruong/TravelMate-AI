@@ -8,7 +8,13 @@ import { getSharedLLM, callWithRetry } from "../llm.js";
 
 export async function synthesisNode(state) {
   const normalized = state.tripContext?.normalizedData ?? {};
-  const { weather, attractions, restaurants, flight: flightData } = normalized;
+  const {
+    weather,
+    attractions,
+    restaurants,
+    flight: flightData,
+    travelGuide,
+  } = normalized;
   const destination =
     state.tripContext?.resolvedDestination || state.tripContext?.destination;
   const flightNumber = state.tripContext?.flightNumber;
@@ -20,6 +26,7 @@ export async function synthesisNode(state) {
     weather: `Weather in ${destination}`,
     restaurant: `Top Restaurants in ${destination}`,
     attractions: `Things To Do in ${destination}`,
+    travelGuide: `Travel Guide — ${destination}`,
   };
 
   const dataSources = [];
@@ -27,6 +34,9 @@ export async function synthesisNode(state) {
   if (weather) dataSources.push({ type: "weather", data: weather });
   if (restaurants) dataSources.push({ type: "restaurant", data: restaurants });
   if (attractions) dataSources.push({ type: "attractions", data: attractions });
+  if (travelGuide?.sections?.length > 0) {
+    dataSources.push({ type: "travelGuide", data: travelGuide });
+  }
 
   console.log("[synthesisNode] Valid data sources:", dataSources.length);
 
@@ -43,14 +53,24 @@ export async function synthesisNode(state) {
     );
 
     const dataBlocks = dataSources
-      .map(
-        (s) =>
-          `[${headerMap[s.type].toUpperCase()}]\n${JSON.stringify(s.data, null, 2)}`,
-      )
+      .map((s) => {
+        const header = headerMap[s.type].toUpperCase();
+        if (s.type === "travelGuide" && s.data?.sections) {
+          const sectionsText = s.data.sections
+            .map((sec) => `${sec.title}:\n${sec.content}`)
+            .join("\n\n");
+          return `[${header}]\n${sectionsText}`;
+        }
+        return `[${header}]\n${JSON.stringify(s.data, null, 2)}`;
+      })
       .join("\n\n");
 
     const sections = dataSources
-      .map((s) => headerMap[s.type])
+      .map((s) => {
+        if (s.type === "travelGuide")
+          return `Travel Guide — ${destination} — practical tips and advice`;
+        return headerMap[s.type];
+      })
       .filter(Boolean)
       .join("\n");
 
@@ -68,6 +88,7 @@ Do NOT use any emojis whatsoever — no emoji characters of any kind anywhere in
 Do NOT output raw JSON or code blocks.
 Keep each section concise — 2-4 bullet points or sentences max.
 If flight data is present, always clearly state the delay status — either "No delays reported" or "Delayed by X minutes".
+If a Travel Guide section is present, present the information as clear practical tips organized by topic. Do not use JSON formatting — write in natural prose or bullet points.
 End with one warm closing sentence inviting follow-up questions.`,
             }),
             new HumanMessage({ content: dataBlocks }),
@@ -108,6 +129,12 @@ End with one warm closing sentence inviting follow-up questions.`,
                   )
                   .join("\n")
               );
+            }
+            if (s.type === "travelGuide" && s.data?.sections) {
+              const sectionsText = s.data.sections
+                .map((sec) => `${sec.title}:\n${sec.content}`)
+                .join("\n\n");
+              return `${header}\n${sectionsText}`;
             }
             return `${header}\n${JSON.stringify(s.data, null, 2)}`;
           })

@@ -107,6 +107,8 @@ export async function intakeNode(state) {
       /\b(restaurant|restaurants|food|dining|cuisine|lunch|dinner|breakfast|cafe|where to eat)\b/i,
     attractions:
       /\b(attraction|attractions|things to do|sightseeing|visit|landmark|museum|tour|sight|activity|activities)\b/i,
+    travelGuide:
+      /\b(visa|entry requirements|passport|customs|etiquette|culture|cultural|tradition|tip|tips|advice|neighborhood|neighbourhoods|district|area|transport|getting around|packing|what to pack|what to bring|best time|when to visit|season|safety|currency|language|tipping|sim card|wifi|what should i know|before i visit|before visiting|local customs|dress code|electric|plug|adapter)\b/i,
   };
 
   const detectedIntents = Object.entries(intentKeywords)
