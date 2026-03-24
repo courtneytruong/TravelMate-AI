@@ -25,13 +25,13 @@ export default function TripContextBar({ tripContext = {} }) {
 
   return (
     <div
-      className="w-full py-2 px-4 border-b"
+      className="w-full py-2 px-4 border-b rounded-tl-xl rounded-tr-xl mb-1"
       style={{
-        backgroundColor: "var(--bg)",
+        backgroundColor: "rgba(170, 59, 255, 0.15)",
         borderColor: "var(--border)",
       }}
     >
-      <div className="flex items-center justify-start gap-6">
+      <div className="flex items-center justify-center gap-6">
         {/* Flight Section */}
         <div className="flex items-center gap-2">
           <span
@@ -52,7 +52,7 @@ export default function TripContextBar({ tripContext = {} }) {
         <div
           className="h-4 w-px"
           style={{
-            backgroundColor: "var(--border)",
+            backgroundColor: "var(--text-h)",
           }}
         />
 
@@ -76,7 +76,7 @@ export default function TripContextBar({ tripContext = {} }) {
         <div
           className="h-4 w-px"
           style={{
-            backgroundColor: "var(--border)",
+            backgroundColor: "var(--text-h)",
           }}
         />
 

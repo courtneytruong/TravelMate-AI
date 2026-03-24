@@ -75,7 +75,7 @@ function App() {
   }, [activeChat?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f1119] via-[#16171d] to-[#0a0d14] p-6 flex">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f1119] via-[#16171d] to-[#0a0d14] flex">
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -96,7 +96,7 @@ function App() {
         />
 
         {/* Main Content Area */}
-        <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col">
+        <div className="flex-1 max-w-6xl mx-auto w-full flex flex-col px-6">
           {/* Header */}
           <div className="mb-8 text-center">
             <h1
@@ -112,9 +112,6 @@ function App() {
               Your intelligent travel companion powered by multi-agent AI
             </p>
           </div>
-
-          {/* Trip Context Bar */}
-          <TripContextBar tripContext={tripContext} />
 
           {/* Chat Window */}
           <ChatWindow
