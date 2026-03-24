@@ -128,26 +128,6 @@ export default function ChatWindow({
             Send
           </button>
         </div>
-
-        {!messages.some((m) => m.role === "user") && (
-          <div className="flex flex-wrap gap-2">
-            {[
-              "Weather in Tokyo",
-              "Flight AA123 status",
-              "Restaurants in Paris",
-              "Things to do in Barcelona",
-            ].map((chip) => (
-              <button
-                key={chip}
-                onClick={() => setInput(chip)}
-                className="px-3 py-1.5 text-xs rounded-full border border-[var(--border)] bg-[var(--code-bg)] hover:bg-[var(--accent-bg)] transition-colors"
-                style={{ color: "var(--text)" }}
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
