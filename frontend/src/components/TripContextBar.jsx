@@ -27,7 +27,8 @@ export default function TripContextBar({ tripContext = {} }) {
     <div
       className="w-full py-2 px-4 border-b"
       style={{
-        background: "linear-gradient(135deg, var(--code-bg), rgba(31, 32, 40, 0.8))",
+        background:
+          "linear-gradient(135deg, var(--code-bg), rgba(31, 32, 40, 0.8))",
         borderColor: "var(--border)",
       }}
     >
