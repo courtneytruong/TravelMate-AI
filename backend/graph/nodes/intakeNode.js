@@ -115,16 +115,25 @@ export async function intakeNode(state) {
     .filter(([, regex]) => regex.test(latestText))
     .map(([i]) => i);
 
+  // if travelGuide detected alongside destination+date,
+  // also include live data tools for a complete response
   let intent;
   if (detectedIntents.length > 0) {
     intent = detectedIntents;
-  } else if (existingContext.flightStatusOnly) {
-    intent = ["flight"];
-    console.log("[intakeNode] Preserving flight-only intent");
+    // If user provided destination + date AND asked what to know,
+    // also pull live weather/restaurants/attractions
+    if (
+      detectedIntents.includes("travelGuide") &&
+      mergedContext.destination &&
+      mergedContext.date
+    ) {
+      if (!intent.includes("weather")) intent.push("weather");
+      if (!intent.includes("restaurants")) intent.push("restaurants");
+      if (!intent.includes("attractions")) intent.push("attractions");
+    }
   } else {
     intent = ["weather", "restaurants", "attractions"];
   }
-
   console.log("[intakeNode] Detected intent:", intent);
   console.log("[intakeNode] Merged context:", mergedContext);
 
