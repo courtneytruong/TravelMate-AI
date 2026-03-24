@@ -25,7 +25,7 @@ export default function TripContextBar({ tripContext = {} }) {
 
   return (
     <div
-      className="w-full py-2 px-4 border-b"
+      className="w-full py-2 px-4 border-b rounded-tl-xl rounded-tr-xl mb-1"
       style={{
         background:
           "linear-gradient(135deg, var(--code-bg), rgba(31, 32, 40, 0.8))",
