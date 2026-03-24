@@ -45,7 +45,7 @@ export default function ChatHistoryPanel({
         </h2>
         <button
           onClick={handleNewChat}
-          className="px-3 py-1.5 text-xs rounded accent-btn"
+          className="px-3 py-1.5 text-xs rounded-xl accent-btn"
         >
           New Chat
         </button>
@@ -66,7 +66,7 @@ export default function ChatHistoryPanel({
               <div
                 key={chat.id}
                 onClick={() => handleSelectChat(chat.id)}
-                className="group px-3 py-2.5 rounded cursor-pointer transition-colors relative"
+                className="group px-3 py-2.5 rounded-xl cursor-pointer transition-colors relative"
                 style={{
                   backgroundColor:
                     activeChat?.id === chat.id
@@ -130,7 +130,7 @@ export default function ChatHistoryPanel({
       {/* Mobile: Hamburger button */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-xl"
         style={{
           backgroundColor: "rgba(170, 59, 255, 0.2)",
           color: "var(--accent)",
