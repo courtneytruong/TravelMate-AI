@@ -95,6 +95,7 @@ export default function useChat({
             : String(Date.now()),
         role: "user",
         content: trimmed,
+        timestamp: Date.now(),
       };
 
       setMessages((m) => [...m, userMsg]);
@@ -120,6 +121,7 @@ export default function useChat({
               : String(Date.now()),
           role: "assistant",
           content: replyText,
+          timestamp: Date.now(),
         };
 
         setMessages((m) => {
@@ -140,6 +142,7 @@ export default function useChat({
               : String(Date.now()),
           role: "error",
           content: "Something went wrong. Please try again.",
+          timestamp: Date.now(),
         };
         setMessages((m) => [...m, errMsg]);
       } finally {
@@ -186,6 +189,7 @@ export default function useChat({
                   : String(Date.now()),
               role: "assistant",
               content: replyText,
+              timestamp: Date.now(),
             }
           : null;
 
@@ -208,6 +212,7 @@ export default function useChat({
           role: "assistant",
           content:
             "👋 Welcome to TravelMate AI! To get started please give me a destination city and travel date, or a flight number and date.",
+          timestamp: Date.now(),
         };
         setMessages([fallbackMsg]);
         if (onUpdateRef.current) onUpdateRef.current([fallbackMsg], {});

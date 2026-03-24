@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import TypingIndicator from "./TypingIndicator";
+import ChatTimeStamp from "./ChatTimeStamp";
 
 export default function ChatWindow({
   messages = [],
@@ -50,8 +51,49 @@ export default function ChatWindow({
             "px-5 py-3 rounded-xl max-w-[85%] shadow-lg break-words";
           if (m.role === "user") {
             return (
-              <div key={m.id} className="flex justify-end">
-                <div className={`${common} message-user`}>
+              <div key={m.id}>
+                <ChatTimeStamp timestamp={m.timestamp} />
+                <div className="flex justify-end">
+                  <div className={`${common} message-user`}>
+                    {typeof m.content === "object" ? (
+                      <pre className="whitespace-pre-wrap text-sm font-mono">
+                        {JSON.stringify(m.content)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm leading-relaxed">{m.content}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          if (m.role === "assistant") {
+            return (
+              <div key={m.id}>
+                <ChatTimeStamp timestamp={m.timestamp} />
+                <div className="flex justify-start">
+                  <div className={`${common} message-assistant`}>
+                    {typeof m.content === "object" ? (
+                      <pre className="whitespace-pre-wrap text-sm font-mono">
+                        {JSON.stringify(m.content)}
+                      </pre>
+                    ) : (
+                      <div className="text-sm leading-relaxed prose prose-invert max-w-none">
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div key={m.id}>
+              <ChatTimeStamp timestamp={m.timestamp} />
+              <div className="flex justify-start">
+                <div
+                  className={`${common} bg-red-900 bg-opacity-30 text-red-200 border border-red-700`}
+                >
                   {typeof m.content === "object" ? (
                     <pre className="whitespace-pre-wrap text-sm font-mono">
                       {JSON.stringify(m.content)}
@@ -60,38 +102,6 @@ export default function ChatWindow({
                     <p className="text-sm leading-relaxed">{m.content}</p>
                   )}
                 </div>
-              </div>
-            );
-          }
-          if (m.role === "assistant") {
-            return (
-              <div key={m.id} className="flex justify-start">
-                <div className={`${common} message-assistant`}>
-                  {typeof m.content === "object" ? (
-                    <pre className="whitespace-pre-wrap text-sm font-mono">
-                      {JSON.stringify(m.content)}
-                    </pre>
-                  ) : (
-                    <div className="text-sm leading-relaxed prose prose-invert max-w-none">
-                      <ReactMarkdown>{m.content}</ReactMarkdown>
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          }
-          return (
-            <div key={m.id} className="flex justify-start">
-              <div
-                className={`${common} bg-red-900 bg-opacity-30 text-red-200 border border-red-700`}
-              >
-                {typeof m.content === "object" ? (
-                  <pre className="whitespace-pre-wrap text-sm font-mono">
-                    {JSON.stringify(m.content)}
-                  </pre>
-                ) : (
-                  <p className="text-sm leading-relaxed">{m.content}</p>
-                )}
               </div>
             </div>
           );
