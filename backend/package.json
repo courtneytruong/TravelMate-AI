@@ -41,7 +41,10 @@
   },
   "jest": {
   "transform": {
-    "^.+\\.js$": "babel-jest"
+    "^.+\\.js$": "babel-jest",
+     "testEnvironment": "node",
+  "testMatch": ["**/__tests__/**/*.test.js"],
+  "silent": true
   },
   "testEnvironment": "node",
   "testMatch": ["**/__tests__/**/*.test.js"]
