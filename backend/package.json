@@ -40,14 +40,12 @@
     "nodemon": "*"
   },
   "jest": {
-  "transform": {
-    "^.+\\.js$": "babel-jest",
-     "testEnvironment": "node",
-  "testMatch": ["**/__tests__/**/*.test.js"],
-  "silent": true
+    "transform": {
+      "^.+\\.js$": "babel-jest"
+    },
+    "testEnvironment": "node",
+    "testMatch": ["**/__tests__/**/*.test.js"],
+    "silent": true
   },
-  "testEnvironment": "node",
-  "testMatch": ["**/__tests__/**/*.test.js"]
-},
   "license": "MIT"
 }
