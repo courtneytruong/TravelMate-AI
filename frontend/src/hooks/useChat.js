@@ -167,6 +167,8 @@ export default function useChat({
       // Skip if messages already exist UNLESS force=true
       if (!force && messages.length > 0) return;
       setIsLoading(true);
+      // Reset tripContext when starting a new chat to clear out previous chat's data
+      setTripContext({});
 
       try {
         const resp = await fetch("http://localhost:3001/api/chat", {
