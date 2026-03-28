@@ -18,11 +18,6 @@ export default function TripContextBar({ tripContext = {} }) {
       })()
     : null;
 
-  // Return null if all fields are empty
-  if (!destination && !flightNumber && !departDate) {
-    return null;
-  }
-
   return (
     <div
       className="w-full py-2 px-4 border-b rounded-tl-xl rounded-tr-xl mb-1"
