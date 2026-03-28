@@ -7,6 +7,7 @@ export default function ChatHistoryPanel({
   selectChat = () => {},
   deleteChat = () => {},
   initChat = () => {},
+  resetChat = () => {},
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -23,6 +24,10 @@ export default function ChatHistoryPanel({
 
   const handleDeleteChat = (e, id) => {
     e.stopPropagation();
+    // If deleting the active chat, immediately clear messages to prevent stale data from showing
+    if (activeChat?.id === id) {
+      resetChat([], {});
+    }
     deleteChat(id);
   };
 

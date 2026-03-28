@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "travelmate_chats";
 
@@ -94,6 +94,20 @@ export default function useChatHistory() {
     return initial[0] ?? null;
   });
 
+  // ─── VALIDATE ACTIVE CHAT ─────────────────────────────────────────────────
+  // Whenever chats change (e.g., a chat is deleted), ensure activeChat still
+  // exists in the list. If not, switch to another chat or null.
+  useEffect(() => {
+    setActiveChat((current) => {
+      // If activeChat still exists in the chats list, keep it
+      if (current && chats.find((c) => c.id === current.id)) {
+        return current;
+      }
+      // Otherwise, switch to the first chat or null if none exist
+      return chats.length > 0 ? chats[0] : null;
+    });
+  }, [chats]);
+
   // ─── PERSIST ──────────────────────────────────────────────────────────────
 
   const persistChats = useCallback((updated) => {
@@ -119,13 +133,13 @@ export default function useChatHistory() {
 
   // ─── SELECT ───────────────────────────────────────────────────────────────
 
-  const selectChat = useCallback((id) => {
-    setChats((prev) => {
-      const found = prev.find((c) => c.id === id);
+  const selectChat = useCallback(
+    (id) => {
+      const found = chats.find((c) => c.id === id);
       if (found) setActiveChat(found);
-      return prev;
-    });
-  }, []);
+    },
+    [chats],
+  );
 
   // ─── UPDATE ───────────────────────────────────────────────────────────────
 
@@ -137,17 +151,28 @@ export default function useChatHistory() {
       setChats((prev) => {
         const updated = prev.map((chat) => {
           if (chat.id !== activeChat.id) return chat;
-          const updatedChat = {
+          return {
             ...chat,
             messages,
             tripContext,
             name: generateChatName(tripContext),
           };
-          Promise.resolve().then(() => setActiveChat(updatedChat));
-          return updatedChat;
         });
         persistChats(updated);
         return updated;
+      });
+
+      // Update the activeChat state directly (no async deferral needed)
+      setActiveChat((current) => {
+        if (current?.id === activeChat.id) {
+          return {
+            ...current,
+            messages,
+            tripContext,
+            name: generateChatName(tripContext),
+          };
+        }
+        return current;
       });
     },
     [activeChat, persistChats],
@@ -160,16 +185,11 @@ export default function useChatHistory() {
       setChats((prev) => {
         const filtered = prev.filter((c) => c.id !== id);
         persistChats(filtered);
-
-        if (activeChat?.id === id) {
-          const next = filtered.length > 0 ? filtered[0] : null;
-          Promise.resolve().then(() => setActiveChat(next));
-        }
-
         return filtered;
       });
+      // The useEffect above will automatically update activeChat if needed
     },
-    [activeChat, persistChats],
+    [persistChats],
   );
 
   return {

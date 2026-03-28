@@ -93,6 +93,7 @@ function App() {
           selectChat={selectChat}
           deleteChat={deleteChat}
           initChat={initChat}
+          resetChat={resetChat}
         />
 
         {/* Main Content Area */}
