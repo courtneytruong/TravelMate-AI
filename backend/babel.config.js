@@ -10,4 +10,5 @@ export default {
       },
     ],
   ],
+  plugins: ["transform-import-meta"],
 };
