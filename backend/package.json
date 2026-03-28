@@ -9,7 +9,10 @@
     "dev": "nodemon server/src/server.js",
     "start:api": "node server/src/server.js",
     "dev:api": "nodemon server/src/server.js",
-    "ingest": "node scripts/ingestDocs.js"
+    "ingest": "node scripts/ingestDocs.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@langchain/community": "^1.1.24",
@@ -29,7 +32,24 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.2",
+    "@jest/globals": "^30.3.0",
+    "babel-jest": "^30.3.0",
+    "babel-plugin-transform-import-meta": "^2.3.3",
+    "jest": "^30.3.0",
     "nodemon": "*"
+  },
+  "jest": {
+    "transform": {
+      "^.+\\.js$": "babel-jest"
+    },
+   "testEnvironment": "node",
+  "testMatch": ["**/__tests__/**/*.test.js"],
+  "silent": true,
+  "transformIgnorePatterns": [
+    "node_modules/(?!(your-esm-package)/)"
+    ]
   },
   "license": "MIT"
 }

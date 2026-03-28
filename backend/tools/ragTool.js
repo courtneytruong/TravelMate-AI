@@ -1,5 +1,4 @@
 import "dotenv/config";
-import { fileURLToPath } from "url";
 import path from "path";
 import { HNSWLib } from "@langchain/community/vectorstores/hnswlib";
 import { OpenAIEmbeddings } from "@langchain/openai";
@@ -35,12 +34,11 @@ let _vectorStore = null;
 async function getVectorStore() {
   if (_vectorStore) return _vectorStore;
 
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const storePath = path.join(__dirname, "../vector-store");
+  const storePath = path.join(process.cwd(), "vector-store");
+  console.log("[ragTool] Loading vector store from:", storePath);
 
   _vectorStore = await HNSWLib.load(storePath, getEmbeddings());
   console.log("[ragTool] Vector store loaded from:", storePath);
-
   return _vectorStore;
 }
 
