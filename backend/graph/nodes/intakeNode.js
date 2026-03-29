@@ -115,22 +115,10 @@ export async function intakeNode(state) {
     .filter(([, regex]) => regex.test(latestText))
     .map(([i]) => i);
 
-  // if travelGuide detected alongside destination+date,
-  // also include live data tools for a complete response
+  // Use only detected intents
   let intent;
   if (detectedIntents.length > 0) {
     intent = detectedIntents;
-    // If user provided destination + date AND asked what to know,
-    // also pull live weather/restaurants/attractions
-    if (
-      detectedIntents.includes("travelGuide") &&
-      mergedContext.destination &&
-      mergedContext.date
-    ) {
-      if (!intent.includes("weather")) intent.push("weather");
-      if (!intent.includes("restaurants")) intent.push("restaurants");
-      if (!intent.includes("attractions")) intent.push("attractions");
-    }
   } else {
     intent = ["weather", "restaurants", "attractions"];
   }
@@ -148,7 +136,7 @@ export async function intakeNode(state) {
           content: `Got it! Let me look up flight **${mergedContext.flightNumber}** and find travel info for your destination. One moment...`,
         }),
       ],
-      tripContext: { ...mergedContext, intent },
+      tripContext: { ...mergedContext, intent, userMessage: latestText },
       phase: "resolving",
     };
   }
@@ -175,7 +163,7 @@ export async function intakeNode(state) {
     }
     return {
       messages: [new AIMessage({ content: ackMessage })],
-      tripContext: { ...mergedContext, intent },
+      tripContext: { ...mergedContext, intent, userMessage: latestText },
       phase: "lookup",
     };
   }
@@ -188,7 +176,7 @@ export async function intakeNode(state) {
           content: `Great! What date are you planning to travel to ${mergedContext.destination}?`,
         }),
       ],
-      tripContext: { ...mergedContext, intent },
+      tripContext: { ...mergedContext, intent, userMessage: latestText },
       phase: "intake",
     };
   }

@@ -8,6 +8,7 @@ export async function researchNode(state) {
   const date = state.tripContext?.date;
   const flightNumber = state.tripContext?.flightNumber;
   const intent = state.tripContext?.intent ?? [];
+  const userMessage = state.tripContext?.userMessage ?? "";
 
   console.log("[researchNode] Starting research for:", destination);
   console.log("[researchNode] Intent:", intent);
@@ -24,7 +25,13 @@ export async function researchNode(state) {
     };
   }
 
-  const result = await runResearch({ destination, date, flightNumber, intent });
+  const result = await runResearch({
+    destination,
+    date,
+    flightNumber,
+    intent,
+    userMessage,
+  });
 
   if (!result.output || result.error) {
     console.error("[researchNode] Research failed:", result.error);
