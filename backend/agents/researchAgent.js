@@ -63,10 +63,17 @@ async function createResearchAgent() {
 
 export async function runResearch(tripContext) {
   try {
-    const { destination, date, flightNumber, intent = [] } = tripContext;
+    const {
+      destination,
+      date,
+      flightNumber,
+      intent = [],
+      userMessage = "",
+    } = tripContext;
 
     console.log(`[researchAgent] Starting research for: ${destination}`);
     console.log(`[researchAgent] Intent:`, intent);
+    console.log(`[researchAgent] User message:`, userMessage.slice(0, 80));
 
     // Determine which tools to call based on detected intent.
     // "flight" intent means ONLY flight — do not add weather/restaurants/attractions.
@@ -107,9 +114,9 @@ export async function runResearch(tripContext) {
     if (lookupFlight)
       prompt += `\n- Flight status for ${flightNumber} — include whether there are any delays (use get_flight_status)`;
     if (lookupTravelGuide) {
-      prompt += `\n- Practical travel guide information for ${destination} (use get_travel_guide with destination="${destination}" and query matching what the user asked)`;
+      prompt += `\n- Practical travel guide information for ${destination} (use get_travel_guide with destination="${destination}" and pass the user's actual question as the query: "${userMessage}")`;
     }
-    prompt += `\n\nCRITICAL: Do NOT call any tools not listed above. You must call ONLY the tools specified. Return raw results from each tool without summarizing.`;
+    prompt += `\n\nCRITICAL: Do NOT call any tools not listed above. You must call ONLY the tools specified. Return raw results from each tool without summarizing. For get_travel_guide, pass a specific query focused on the most relevant travel advice topic.`;
 
     const { agent, tools } = await createResearchAgent();
 
