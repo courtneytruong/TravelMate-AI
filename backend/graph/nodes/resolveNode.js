@@ -46,11 +46,9 @@ export async function resolveNode(state) {
     console.log("[resolveNode] rawDest extracted:", rawDest);
 
     if (rawDest) {
-      resolvedDestination = rawDest
-        .replace(/\([A-Z]{3,4}\)/g, "")
-        .replace(/International|Airport|Intl/gi, "")
-        .replace(/\s+/g, " ")
-        .trim();
+      // The flight tool now provides clean city names (without airport codes).
+      // Just trim whitespace and normalize spacing.
+      resolvedDestination = rawDest.replace(/\s+/g, " ").trim();
     }
 
     console.log("[resolveNode] Resolved destination:", resolvedDestination);
