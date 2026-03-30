@@ -382,6 +382,28 @@ HNSWLib is pure JavaScript requiring no Python installation or separate server p
 
 Detecting what the user is asking about before calling any tools prevents unnecessary API calls and reduces latency. A user asking "What's the weather in Barcelona?" should not trigger Foursquare restaurant and attraction lookups. The intakeNode analyzes the message once, sets intent flags in the state, and each downstream tool only executes if its intent is present.
 
+### Future Intent Detection Improvements
+
+Intent detection could be improved by replacing the current regex pattern matching with an LLM-based classification agent, enabling more natural language understanding of implicit user intent.
+
+### Future Improved Destination Extraction Improvements
+
+The current implementation uses a regex-based approach with a hardcoded
+exclusion list to determine whether a capitalized word in a user message
+is a valid destination city. While this works reliably for common inputs
+it can fail on edge cases — for example city names that coincidentally
+match common English words, or destinations mentioned without standard
+travel keywords.
+
+A more robust solution would integrate a Named Entity Recognition (NER)
+library such as spaCy (Python) or compromise (JavaScript) to identify
+location entities in user messages directly. NER models are trained to
+distinguish place names from other proper nouns, making destination
+extraction significantly more accurate without requiring a maintained
+exclusion list. This improvement would be particularly valuable for
+supporting a wider range of natural language inputs and international
+city names.
+
 ## License
 
 MIT License
