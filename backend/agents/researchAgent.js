@@ -91,7 +91,7 @@ export async function runResearch(tripContext) {
       !flightOnly && (lookupAll || intent.includes("attractions"));
     const lookupRestaurants =
       !flightOnly && (lookupAll || intent.includes("restaurants"));
-    const lookupFlight = !!flightNumber || intent.includes("flight");
+    const lookupFlight = intent.includes("flight");
     const lookupTravelGuide =
       intent.includes("travelGuide") || intent.includes("travelguide");
 
