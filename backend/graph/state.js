@@ -64,7 +64,7 @@ export async function extractTripInfo(text) {
     /\b(?:in|visit(?:ing)?|heading\s+to|headed\s+to|go(?:ing)?\s+to|travel(?:ing)?\s+to|flying\s+to|fly\s+to|trip\s+to|want\s+to\s+go\s+to)\s+([A-Za-z][a-zA-Z]+(?:\s+[A-Za-z][a-zA-Z]+)?)/i,
   ];
   const NOT_A_CITY =
-    /^(the|a|an|my|our|your|this|that|april|may|june|july|january|february|march|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|last|this|today|tomorrow|tonight|now|soon|yesterday|morning|afternoon|evening|night|week|month|year|beach|park|lake|ocean|mountain|river|forest|island|town|place|area|land)$/i;
+    /^(the|a|an|my|our|your|this|that|april|may|june|july|january|february|march|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|last|this|today|tomorrow|tonight|now|soon|yesterday|morning|afternoon|evening|night|week|month|year|beach|park|lake|ocean|mountain|river|forest|island|town|place|area|land|visa|requirements|information|weather|transportation|accommodations|dining|attractions|restaurants|hotels|flights|booking|tips|guide|advice|help|trip|travel|tour|planning|itinerary|budget|cost|price|payment|currency|language|culture|history|getting|getting|entry|entrance|customs|immigration)$/i;
 
   // Helper to normalize to title case
   const toTitleCase = (str) =>
