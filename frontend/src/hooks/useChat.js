@@ -75,11 +75,21 @@ export default function useChat({
    * Called by App.jsx when the user switches to a saved chat.
    * No backend call — instant load from localStorage data.
    */
-  const resetChat = useCallback((savedMessages = [], savedTripContext = {}) => {
-    setMessages(savedMessages);
-    setTripContext(savedTripContext);
-    setIsLoading(false);
-  }, []);
+  const resetChat = useCallback(
+    (savedMessages = [], savedTripContext = {}) => {
+      console.log(
+        "[useChat.resetChat] Called with tripContext:",
+        savedTripContext,
+        "sessionId:",
+        sessionId.current,
+      );
+      setMessages(savedMessages);
+      // Apply merge logic to normalize the data (maps 'date' to 'departDate')
+      mergeTripContext(savedTripContext);
+      setIsLoading(false);
+    },
+    [mergeTripContext],
+  );
 
   // ─── SEND MESSAGE ─────────────────────────────────────────────────────────
 
@@ -101,17 +111,35 @@ export default function useChat({
       setMessages((m) => [...m, userMsg]);
       setIsLoading(true);
 
+      // Capture the current sessionId to check against later
+      // This prevents processing responses from old chats after switching
+      const requestSessionId = sessionId.current;
+
       try {
         const resp = await fetch("http://localhost:3001/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            sessionId: sessionId.current,
+            sessionId: requestSessionId,
             message: trimmed,
           }),
         });
 
         const data = await resp.json();
+
+        // CRITICAL FIX: Only process the response if we're still on the same session.
+        // This prevents race conditions if the user switches chats while waiting for a response.
+        // If ignored, the old response would corrupt the new chat's tripContext.
+        if (sessionId.current !== requestSessionId) {
+          console.log(
+            "[useChat] Ignoring response for old session",
+            requestSessionId,
+            "current session is",
+            sessionId.current,
+          );
+          return;
+        }
+
         const replyText = data?.reply ?? String(data ?? "");
 
         const aiMsg = {
@@ -170,17 +198,34 @@ export default function useChat({
       // Reset tripContext when starting a new chat to clear out previous chat's data
       setTripContext({});
 
+      // Capture the current sessionId to check against later
+      // This prevents processing responses from old chats after switching
+      const requestSessionId = sessionId.current;
+
       try {
         const resp = await fetch("http://localhost:3001/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            sessionId: sessionId.current,
+            sessionId: requestSessionId,
             message: "hi",
           }),
         });
 
         const data = await resp.json();
+
+        // CRITICAL FIX: Only process the response if we're still on the same session.
+        // This prevents race conditions if the user switches chats while waiting for a response.
+        if (sessionId.current !== requestSessionId) {
+          console.log(
+            "[useChat] Ignoring initChat response for old session",
+            requestSessionId,
+            "current session is",
+            sessionId.current,
+          );
+          return;
+        }
+
         const replyText = data?.reply ?? "";
 
         const welcomeMsg = replyText

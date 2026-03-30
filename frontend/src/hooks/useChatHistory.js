@@ -136,7 +136,19 @@ export default function useChatHistory() {
   const selectChat = useCallback(
     (id) => {
       const found = chats.find((c) => c.id === id);
-      if (found) setActiveChat(found);
+      console.log(
+        "[useChatHistory.selectChat] Selecting chat",
+        id,
+        "found:",
+        found,
+      );
+      if (found) {
+        console.log(
+          "[useChatHistory.selectChat] Setting activeChat with tripContext:",
+          found.tripContext,
+        );
+        setActiveChat(found);
+      }
     },
     [chats],
   );
@@ -145,7 +157,12 @@ export default function useChatHistory() {
 
   const updateActiveChat = useCallback(
     (messages, tripContext) => {
-      // Guard: no-op if there is no active chat to update
+      console.log(
+        "[useChatHistory.updateActiveChat] Updating chat",
+        activeChat?.id,
+        "with tripContext:",
+        tripContext,
+      ); // Guard: no-op if there is no active chat to update
       if (!activeChat?.id) return;
 
       setChats((prev) => {

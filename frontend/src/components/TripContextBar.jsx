@@ -3,6 +3,8 @@ import React from "react";
 export default function TripContextBar({ tripContext = {} }) {
   const { destination, departDate, flightNumber } = tripContext;
 
+  console.log("[TripContextBar] Received tripContext:", tripContext);
+
   // Format departDate if it exists
   // Parse YYYY-MM-DD format manually to avoid timezone issues
   // (new Date("YYYY-MM-DD") interprets as UTC, causing off-by-one in other timezones)
