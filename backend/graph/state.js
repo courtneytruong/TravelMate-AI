@@ -60,10 +60,11 @@ export async function extractTripInfo(text) {
 
   let destination = null;
   const destPatterns = [
-    /\b(?:in|visit(?:ing)?|heading\s+to|headed\s+to|going\s+to|travel(?:ing)?\s+to|flying\s+to|fly\s+to|trip\s+to)\s+([A-Za-z][a-zA-Z]+(?:\s+[A-Za-z][a-zA-Z]+)?)/i,
+    // Match patterns like: "visit Tokyo", "trip to Tokyo", "flying to Tokyo", "go to Tokyo", "want to go to Tokyo"
+    /\b(?:in|visit(?:ing)?|heading\s+to|headed\s+to|go(?:ing)?\s+to|travel(?:ing)?\s+to|flying\s+to|fly\s+to|trip\s+to|want\s+to\s+go\s+to)\s+([A-Za-z][a-zA-Z]+(?:\s+[A-Za-z][a-zA-Z]+)?)/i,
   ];
   const NOT_A_CITY =
-    /^(the|a|an|my|our|your|this|that|april|may|june|july|january|february|march|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|last|this|today|tomorrow|tonight|now|soon|yesterday|morning|afternoon|evening|night|week|month|year)$/i;
+    /^(the|a|an|my|our|your|this|that|april|may|june|july|january|february|march|august|september|october|november|december|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next|last|this|today|tomorrow|tonight|now|soon|yesterday|morning|afternoon|evening|night|week|month|year|beach|park|lake|ocean|mountain|river|forest|island|town|place|area|land)$/i;
 
   // Helper to normalize to title case
   const toTitleCase = (str) =>
@@ -75,9 +76,9 @@ export async function extractTripInfo(text) {
   // Helper to remove temporal words from the end of destination
   const stripTemporalWords = (str) => {
     const words = str.split(/\s+/);
-    // Filter out individual temporal words from the destination
+    // Filter out individual temporal words and prepositions from the destination
     const temporalWords =
-      /^(tomorrow|tonight|today|now|soon|yesterday|morning|afternoon|evening|night)$/i;
+      /^(tomorrow|tonight|today|now|soon|yesterday|morning|afternoon|evening|night|on|at|for)$/i;
     const filtered = words.filter((w) => !temporalWords.test(w));
     return filtered.join(" ").trim();
   };
@@ -88,7 +89,10 @@ export async function extractTripInfo(text) {
     if (match) {
       let candidate = match[1].trim();
       candidate = stripTemporalWords(candidate);
-      if (!NOT_A_CITY.test(candidate)) {
+      // Check if any word in the candidate is not a city
+      const words = candidate.split(/\s+/);
+      const hasNonCityWord = words.some((w) => NOT_A_CITY.test(w));
+      if (!hasNonCityWord) {
         destination = toTitleCase(candidate);
         break;
       }
@@ -100,12 +104,14 @@ export async function extractTripInfo(text) {
   if (!destination) {
     // First, try prepositions that commonly precede city names
     const prepositionPattern =
-      /\b(?:for|about|regarding|in|visit|visiting)\s+([A-Za-z][a-zA-Z]*(?:\s+[A-Za-z][a-zA-Z]*)?)\b/i;
+      /\b(?:for|about|regarding|visit|visiting)\s+([A-Za-z][a-zA-Z]*(?:\s+[A-Za-z][a-zA-Z]*)?)\b/i;
     const prepMatch = textStr.match(prepositionPattern);
     if (prepMatch) {
       let candidate = prepMatch[1].trim();
       candidate = stripTemporalWords(candidate);
-      if (!NOT_A_CITY.test(candidate) && candidate.length > 2) {
+      const words = candidate.split(/\s+/);
+      const hasNonCityWord = words.some((w) => NOT_A_CITY.test(w));
+      if (!hasNonCityWord && candidate.length > 2) {
         destination = toTitleCase(candidate);
       }
     }
@@ -121,7 +127,9 @@ export async function extractTripInfo(text) {
       for (const word of capitalizedWords.slice(1)) {
         let candidate = word.trim();
         candidate = stripTemporalWords(candidate);
-        if (!NOT_A_CITY.test(candidate) && candidate.length > 2) {
+        const words = candidate.split(/\s+/);
+        const hasNonCityWord = words.some((w) => NOT_A_CITY.test(w));
+        if (!hasNonCityWord && candidate.length > 2) {
           destination = toTitleCase(candidate);
           break;
         }

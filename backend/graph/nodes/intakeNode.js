@@ -104,7 +104,7 @@ export async function intakeNode(state) {
     weather:
       /\b(weather|forecast|temperature|climate|rain|rainy|sunny|cold|hot|warm|pack|packing|umbrella)\b/i,
     restaurants:
-      /\b(restaurant|restaurants|food|dining|cuisine|lunch|dinner|breakfast|cafe|where to eat)\b/i,
+      /\b(restaurant|restaurants|food|dining|cuisine|lunch|dinner|breakfast|cafe|where to eat|eat)\b/i,
     attractions:
       /\b(attraction|attractions|things to do|sightseeing|visit|landmark|museum|tour|sight|activity|activities)\b/i,
     travelGuide:
@@ -189,6 +189,7 @@ export async function intakeNode(state) {
           'I didn\'t quite catch that! Please share one of the following:\n- A flight number and travel date (e.g. "AA123 on April 15th")\n- A destination city and travel date (e.g. "Tokyo on April 15th")',
       }),
     ],
+    tripContext: mergedContext,
     phase: "intake",
   };
 }
