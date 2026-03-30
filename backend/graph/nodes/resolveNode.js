@@ -66,10 +66,10 @@ export async function resolveNode(state) {
           }),
         ],
         tripContext: {
+          flightNumber: state.tripContext?.flightNumber, // preserve flightNumber
           resolvedDestination,
           flightStatus,
           flightLookupFailed: false,
-          flightNumber: null, // clear so follow-ups don't re-trigger resolveNode
           intent: ["flight"],
           researchOutput: flightOutput,
           toolsUsed: ["get_flight_status"],
@@ -86,8 +86,9 @@ export async function resolveNode(state) {
           }),
         ],
         tripContext: {
+          flightNumber: state.tripContext?.flightNumber, // preserve flightNumber
           flightStatus,
-          flightLookupFailed: true,
+          flightLookupFailed: false,
           flightStatusOnly: true,
         },
         phase: "intake",
