@@ -14,6 +14,42 @@ function fmtDateTime(dt) {
   }
 }
 
+// Extract city name from airport object.
+// Leverages API-provided city fields rather than parsing airport names.
+function extractCityFromAirport(airport) {
+  if (!airport) return "Unknown location";
+
+  // Try common city field names that AeroDataBox API might provide
+  if (airport.city) return airport.city;
+  if (airport.municipality) return airport.municipality;
+  if (airport.municipalityName) return airport.municipalityName;
+  if (airport.location) return airport.location;
+
+  // Fallback: try to extract from name by removing generic airport keywords
+  const name = airport.name ?? airport.iata ?? airport.icao ?? "";
+  if (!name) return "Unknown location";
+
+  const airportKeywords = [
+    "International",
+    "Airport",
+    "Regional",
+    "Domestic",
+    "Air Base",
+  ];
+
+  const words = String(name).split(/\s+/);
+  let cityEndIdx = words.length;
+
+  for (let i = 0; i < words.length; i++) {
+    if (airportKeywords.some((kw) => words[i].includes(kw))) {
+      cityEndIdx = i;
+      break;
+    }
+  }
+
+  return words.slice(0, cityEndIdx).join(" ").trim() || "Unknown location";
+}
+
 const flightTool = new DynamicStructuredTool({
   name: "flight_tool",
   description:
@@ -99,18 +135,10 @@ const flightTool = new DynamicStructuredTool({
       const airline = f?.airline?.name ?? f?.airline?.iata ?? "Unknown airline";
 
       const originAirport = f?.departure?.airport ?? {};
-      const origin =
-        originAirport?.name ??
-        originAirport?.iata ??
-        originAirport?.icao ??
-        "Unknown origin";
+      const origin = extractCityFromAirport(originAirport);
 
       const arrivalAirport = f?.arrival?.airport ?? {};
-      const destination =
-        arrivalAirport?.name ??
-        arrivalAirport?.iata ??
-        arrivalAirport?.icao ??
-        "Unknown destination";
+      const destination = extractCityFromAirport(arrivalAirport);
 
       const getTime = (side) => {
         if (!side) return null;
