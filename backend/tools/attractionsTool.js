@@ -22,8 +22,9 @@ const categoryMap = {
 
 // Post-filter regex — removes food and drink venues that Foursquare sometimes
 // returns even when a landmarks category ID is specified.
-const FOOD_DRINK_CATEGORIES =
-  /pub|bar|restaurant|cafe|coffee|bakery|food|drink|dining|bistro|brewery|winery|cocktail|tavern|brasserie|eatery|diner/i;
+
+const NON_FOOD_CATEGORIES =
+  /shrine|temple|garden|park|museum|landmark|monument|church|mosque|cemetery|government|hospital|stadium|arena|theater|theatre|gallery|library|school|university/i;
 
 const zSchema = z.object({
   city: z.string().describe("City name to search for attractions"),
@@ -62,11 +63,11 @@ const attractionsTool = new DynamicStructuredTool({
       // Post-filter: remove any food or drink venues from the results
       const filtered = results.filter((place) => {
         const catName = place?.categories?.[0]?.name ?? "";
-        return !FOOD_DRINK_CATEGORIES.test(catName);
+        return NON_FOOD_CATEGORIES.test(catName);
       });
 
       console.log(
-        `[attractionsTool] Raw: ${results.length} results, after food filter: ${filtered.length}`,
+        `[attractionsTool] Raw: ${results.length} results, after non-food filter: ${filtered.length}`,
       );
 
       // Fall back to unfiltered if every result was a food venue

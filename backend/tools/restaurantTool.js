@@ -23,8 +23,11 @@ const priceTier = (p) => {
 
 // Post-filter regex — removes non-food venues (shrines, parks, museums etc.)
 // that Foursquare sometimes returns when searching near landmarks.
-const NON_FOOD_CATEGORIES =
-  /shrine|temple|garden|park|museum|landmark|monument|church|mosque|cemetery|government|hospital|stadium|arena|theater|theatre|gallery|library|school|university/i;
+// const NON_FOOD_CATEGORIES =
+//   /shrine|temple|garden|park|museum|landmark|monument|church|mosque|cemetery|government|hospital|stadium|arena|theater|theatre|gallery|library|school|university/i;
+
+const FOOD_DRINK_CATEGORIES =
+  /pub|bar|restaurant|cafe|coffee|bakery|food|drink|dining|bistro|brewery|winery|cocktail|tavern|brasserie|eatery|diner/i;
 
 const restaurantTool = new DynamicStructuredTool({
   name: "restaurant_tool",
@@ -57,11 +60,11 @@ const restaurantTool = new DynamicStructuredTool({
       // Post-filter: remove non-food venues that appear due to proximity
       const filtered = results.filter((place) => {
         const catName = place?.categories?.[0]?.name ?? "";
-        return !NON_FOOD_CATEGORIES.test(catName);
+        return FOOD_DRINK_CATEGORIES.test(catName);
       });
 
       console.log(
-        `[restaurantTool] Raw: ${results.length} results, after non-food filter: ${filtered.length}`,
+        `[restaurantTool] Raw: ${results.length} results, after food/drink filter: ${filtered.length}`,
       );
 
       // Fall back to unfiltered if filter removed everything
